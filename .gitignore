@@ -1,0 +1,13 @@
+bin/
+obj/
+*.user
+.vs/
+.vscode/
+.idea/
+TestResults/
+publish/
+dist/
+*.binlog
+.DS_Store
+.review-backup/
+specs/

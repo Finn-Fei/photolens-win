@@ -1,0 +1,162 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:PhotoLensWin.App.Views;assembly=PhotoLensWin.App"
+        x:Class="PhotoLensWin.App.Views.MainWindow"
+        Title="PhotoLens"
+        Width="1280" Height="800" MinWidth="760" MinHeight="540"
+        Background="#0E0F10">
+
+  <Window.Styles>
+    <Style Selector="Button.tool">
+      <Setter Property="Padding" Value="9,5" />
+      <Setter Property="MinWidth" Value="0" />
+      <Setter Property="CornerRadius" Value="6" />
+      <Setter Property="FontSize" Value="12.5" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Button.tool:pointerover /template/ ContentPresenter">
+      <Setter Property="Background" Value="#2A2D31" />
+    </Style>
+    <Style Selector="Button.toggleOn">
+      <Setter Property="Background" Value="#2E5C99" />
+    </Style>
+    <Style Selector="Button.glassArrow">
+      <Setter Property="Width" Value="36" />
+      <Setter Property="Height" Value="36" />
+      <Setter Property="CornerRadius" Value="18" />
+      <Setter Property="FontSize" Value="15" />
+      <Setter Property="Foreground" Value="White" />
+      <Setter Property="Opacity" Value="0.75" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Button.glassArrow:pointerover /template/ ContentPresenter">
+      <Setter Property="Background" Value="#CC2A2D31" />
+      <Setter Property="Opacity" Value="0.95" />
+    </Style>
+    <Style Selector="Border.filmItem">
+      <Setter Property="Width" Value="208" />
+      <Setter Property="Height" Value="92" />
+      <Setter Property="CornerRadius" Value="8" />
+      <Setter Property="Margin" Value="0,0,0,10" />
+      <Setter Property="Background" Value="#16181A" />
+      <Setter Property="BorderBrush" Value="#2A2D30" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="Padding" Value="6" />
+    </Style>
+    <Style Selector="Border.filmItem.selected">
+      <Setter Property="BorderBrush" Value="#5C99FF" />
+      <Setter Property="BorderThickness" Value="2" />
+      <Setter Property="Background" Value="#225C99FF" />
+    </Style>
+    <Style Selector="TextBlock.emptyHint">
+      <Setter Property="Foreground" Value="#B7BDC4" />
+      <Setter Property="FontSize" Value="15" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+      <Setter Property="Opacity" Value="0.85" />
+    </Style>
+    <Style Selector="Border.dropHighlight">
+      <Setter Property="BorderBrush" Value="#4E84D4" />
+      <Setter Property="BorderThickness" Value="2" />
+      <Setter Property="CornerRadius" Value="10" />
+      <Setter Property="Margin" Value="8" />
+      <Setter Property="Background" Value="#1F4E84D4" />
+    </Style>
+    <Style Selector="Border.loupe">
+      <Setter Property="Background" Value="Black" />
+      <Setter Property="BorderBrush" Value="White" />
+      <Setter Property="BorderThickness" Value="2" />
+      <Setter Property="ClipToBounds" Value="True" />
+    </Style>
+    <Style Selector="TextBlock.bar">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="Foreground" Value="#C9CDD2" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="TextBlock.hintToast">
+      <Setter Property="Foreground" Value="#E8A33D" />
+    </Style>
+    <Style Selector="Border.infoPanel">
+      <Setter Property="Width" Value="290" />
+      <Setter Property="Background" Value="#F016181B" />
+      <Setter Property="CornerRadius" Value="8" />
+      <Setter Property="Margin" Value="0,12,12,12" />
+      <Setter Property="Padding" Value="14" />
+    </Style>
+    <Style Selector="TextBlock.infoText">
+      <Setter Property="FontSize" Value="12.5" />
+      <Setter Property="LineHeight" Value="22" />
+      <Setter Property="Foreground" Value="#D6DADF" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+    <Style Selector="Border.divider">
+      <Setter Property="Width" Value="1" />
+      <Setter Property="Background" Value="#24282C" />
+    </Style>
+  </Window.Styles>
+
+  <Grid RowDefinitions="Auto,Auto,*,Auto">
+    <Menu Grid.Row="0" x:Name="TopMenu" />
+
+    <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="6" Margin="8,4" x:Name="Toolbar">
+      <Button Classes="tool" x:Name="BtnOpenFolder" Content="打开文件夹" />
+      <Button Classes="tool" x:Name="BtnOpenImages" Content="打开图片" />
+      <Button Classes="tool" x:Name="BtnSort" Content="排序 ▾" />
+      <Button Classes="tool" x:Name="BtnCompare" Content="对比" />
+      <Button Classes="tool" x:Name="BtnInfo" Content="图片信息" />
+      <Button Classes="tool" x:Name="BtnList" Content="隐藏列表" />
+      <Panel HorizontalAlignment="Right" Width="10" />
+      <Button Classes="tool" x:Name="BtnFit" Content="适合窗口" HorizontalAlignment="Right" />
+      <Button Classes="tool" x:Name="BtnActual" Content="实际大小" HorizontalAlignment="Right" />
+    </StackPanel>
+
+    <Grid Grid.Row="2" ColumnDefinitions="Auto,1*">
+      <local:Filmstrip x:Name="Strip" Width="232" Grid.Column="0" />
+      <Border Grid.Column="0" Classes="divider" Margin="0,0,0,0" x:Name="StripDivider"
+              HorizontalAlignment="Right" VerticalAlignment="Stretch" />
+
+      <Grid Grid.Column="1" x:Name="MainSplit" ColumnDefinitions="1*,0,0">
+        <!-- 主画布 -->
+        <Panel Grid.Column="0">
+          <local:ImageViewer x:Name="MainViewer" />
+          <Button Classes="glassArrow" x:Name="BtnPrev" Content="‹" IsVisible="False"
+                  HorizontalAlignment="Left" Margin="14,0,0,0" />
+          <Button Classes="glassArrow" x:Name="BtnNext" Content="›" IsVisible="False"
+                  HorizontalAlignment="Right" Margin="0,0,14,0" />
+          <Border Classes="infoPanel" x:Name="InfoPanel" IsVisible="False"
+                  HorizontalAlignment="Right" VerticalAlignment="Stretch">
+            <ScrollViewer>
+              <TextBlock Classes="infoText" x:Name="InfoText" />
+            </ScrollViewer>
+          </Border>
+        </Panel>
+
+        <!-- 对比区（进入对比模式时展开） -->
+        <Border Grid.Column="1" Classes="divider" x:Name="CompareDivider" IsVisible="False" />
+        <Grid Grid.Column="2" x:Name="CompareArea" IsVisible="False"
+              RowDefinitions="Auto,1*">
+          <Grid Grid.Row="0" ColumnDefinitions="Auto,1*" Margin="10,8,10,4">
+            <TextBlock Grid.Column="0" Classes="bar" Margin="0,0,8,0" VerticalAlignment="Center" Text="对比：" />
+            <ComboBox Grid.Column="1" x:Name="ComparePicker" MinWidth="170"
+                      HorizontalAlignment="Stretch" FontSize="12" />
+          </Grid>
+          <local:ImageViewer Grid.Row="1" x:Name="CompareViewer" Margin="0,0,0,0" />
+        </Grid>
+      </Grid>
+    </Grid>
+
+    <Border Grid.Row="3" Background="#101214" Height="34">
+      <Grid ColumnDefinitions="1*,Auto,1*">
+        <TextBlock Grid.Column="0" Classes="bar" x:Name="NameLabel" Margin="12,0"
+                   HorizontalAlignment="Left" TextTrimming="CharacterEllipsis" />
+        <TextBlock Grid.Column="1" Classes="bar" x:Name="HintLabel"
+                   HorizontalAlignment="Center" TextTrimming="CharacterEllipsis"
+                   MaxWidth="560" />
+        <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right"
+                    Margin="12,0" Spacing="14">
+          <TextBlock Classes="bar" x:Name="IndexLabel" />
+          <TextBlock Classes="bar" x:Name="ZoomLabel" />
+        </StackPanel>
+      </Grid>
+    </Border>
+  </Grid>
+</Window>
