@@ -17,6 +17,7 @@ using Avalonia.Styling;
 using Avalonia.Threading;
 using PhotoLensWin.App.Services;
 using PhotoLensWin.Core;
+using SkiaSharp;
 
 namespace PhotoLensWin.App.Views;
 
@@ -47,6 +48,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        Icon = new WindowIcon(GenerateAppIcon());
         Strip.Store = _thumbs;
         WireControls();
         _toastTimer.Tick += (_, _) => ResetHint();
@@ -741,16 +743,23 @@ public partial class MainWindow : Window
     private void ApplyListVisibility()
     {
         Strip.IsVisible = _showStrip;
-        StripDivider.IsVisible = _showStrip;
-        Strip.Width = _showStrip ? 232 : 0;
         if (_showStrip)
         {
-            Strip.Margin = new Thickness(10, 10, 0, 10);
+            // 确保列宽恢复（可能被隐藏时设为 0）
+            var grid = Strip.Parent as Grid;
+            if (grid is not null && grid.ColumnDefinitions.Count >= 3)
+            {
+                grid.ColumnDefinitions[0].Width = new GridLength(232);
+            }
             BtnList.Content = "隐藏列表";
         }
         else
         {
-            Strip.Margin = new Thickness(0);
+            var grid = Strip.Parent as Grid;
+            if (grid is not null && grid.ColumnDefinitions.Count >= 3)
+            {
+                grid.ColumnDefinitions[0].Width = new GridLength(0);
+            }
             BtnList.Content = "显示列表";
         }
     }
@@ -1039,6 +1048,49 @@ public partial class MainWindow : Window
             LogError("DeleteCurrentFileAsync failed: " + ex.Message);
             ShowToast("删除失败：" + ex.Message);
         }
+    }
+
+    /// <summary>生成 PhotoLens 应用图标（运行时用 SkiaSharp 画，无需外部文件）。</summary>
+    private static Bitmap GenerateAppIcon()
+    {
+        const int size = 128;
+        using var bmp = new SKBitmap(size, size);
+        using var canvas = new SKCanvas(bmp);
+
+        // 深蓝渐变背景圆
+        using var bgShader = SKShader.CreateRadialGradient(
+            new SKPoint(size / 2f, size / 2f), size / 2f,
+            new[] { new SKColor(0x1E3A5F), new SKColor(0x0A1628) },
+            new[] { 0f, 1f }, SKShaderTileMode.Clamp);
+        using var bgPaint = new SKPaint { IsAntialias = true, Shader = bgShader };
+        canvas.DrawCircle(size / 2f, size / 2f, size / 2f - 2, bgPaint);
+
+        // 白色光圈
+        using var ringPaint = new SKPaint
+        {
+            IsAntialias = true,
+            Style = SKPaintStyle.Stroke,
+            Color = new SKColor(0xFF5C99FF),
+            StrokeWidth = 4,
+        };
+        canvas.DrawCircle(size / 2f, size / 2f, size / 2f - 10, ringPaint);
+
+        // 中心白色十字 + 小圆点
+        float cx = size / 2f, cy = size / 2f;
+        using var crossPaint = new SKPaint
+        {
+            IsAntialias = true, Color = new SKColor(0xFF5C99FF), StrokeWidth = 8, StrokeCap = SKStrokeCap.Round,
+        };
+        canvas.DrawLine(cx - 24, cy, cx + 24, cy, crossPaint);
+        canvas.DrawLine(cx, cy - 24, cx, cy + 24, crossPaint);
+        using var dotPaint = new SKPaint { IsAntialias = true, Color = new SKColor(0xFFFFFFFF) };
+        canvas.DrawCircle(cx, cy, 8, dotPaint);
+
+        using var ms = new MemoryStream();
+        using var encoded = bmp.Encode(SKEncodedImageFormat.Png, 100);
+        encoded.SaveTo(ms);
+        ms.Position = 0;
+        return new Bitmap(ms);
     }
 
     /// <summary>Windows Shell API：SHFileOperation 删除到回收站。零 NuGet 依赖。</summary>

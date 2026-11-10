@@ -1,24 +1,37 @@
 using System;
+using System.IO;
 using System.Linq;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Media;
+using Avalonia.Media.Imaging;
+using Avalonia.Threading;
 using PhotoLensWin.App.Services;
 using PhotoLensWin.Core;
 
 namespace PhotoLensWin.App.Views;
 
 /// <summary>
-/// 画布控件：缩放平移、双击切换、Ctrl+滚轮缩放、滚轮平移、触屏捏合、
-/// 按住 Z 放大镜、拖放高亮、空态提示。从 Mac 版 CanvasView 移植。
+/// 画布控件：Image 自动居中 + Uniform 缩放（Avalonia 布局系统负责），
+/// 外层容器 RenderTransform 负责旋转/缩放/平移。
+/// 职责分离后，Image 永远在正确的显示尺寸上，RenderTransform 只是数学变换链。
 /// </summary>
 public class ImageViewer : Control
 {
     private const double LoupeDiameter = 150;
 
+    // 三层结构：_transformLayer（缩放/平移/旋转）→ _layoutLayer（Image 按 Uniform 自动布局）→ Image
     private readonly Grid _root = new();
-    private readonly Image _image = new() { Stretch = Stretch.None, IsVisible = false };
+    private readonly Grid _transformLayer = new();  // 缩放/平移/旋转在这里
+    private readonly Border _layoutLayer = new();    // Image 在这里按 Uniform 自动居中
+    private readonly Image _image = new()
+    {
+        Stretch = Stretch.Uniform,                    // 按比例缩放适应父容器
+        HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+        VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+        IsVisible = false,
+    };
     private readonly TextBlock _message = new();
     private readonly Border _dropHighlight = new();
     private readonly Border _loupe = new();
@@ -26,8 +39,8 @@ public class ImageViewer : Control
 
     private ViewTransform _transform = new();
     private bool _isFitted = true;
-    private Affine _orientation = Affine.Identity;       // 源像素 → 摆正后显示坐标
-    private int _rotationTurns;                          // 用户旋转（仅当前画面，不持久化）
+    private Affine _orientation = Affine.Identity;
+    private int _rotationTurns;
     private FullImage? _current;
     private bool _pointerPanning;
     private Point _panLast;
@@ -61,7 +74,6 @@ public class ImageViewer : Control
 
         _loupe.Width = LoupeDiameter;
         _loupe.Height = LoupeDiameter;
-        // Margin 定位需要左上对齐，默认 Stretch 会把放大镜居中到可用区域
         _loupe.HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Left;
         _loupe.VerticalAlignment = Avalonia.Layout.VerticalAlignment.Top;
         _loupe.CornerRadius = new CornerRadius(LoupeDiameter / 2);
@@ -70,7 +82,9 @@ public class ImageViewer : Control
         _loupe.IsVisible = false;
         _loupe.Child = _loupeImage;
 
-        _root.Children.Add(_image);
+        _layoutLayer.Child = _image;
+        _transformLayer.Children.Add(_layoutLayer);
+        _root.Children.Add(_transformLayer);
         _root.Children.Add(_dropHighlight);
         _root.Children.Add(_loupe);
         _root.Children.Add(_message);
@@ -98,15 +112,13 @@ public class ImageViewer : Control
         _current = image;
         _rotationTurns = 0;
         _image.Source = image.Bitmap;
-        _image.Width = image.PixelWidth;
-        _image.Height = image.PixelHeight;
         _image.IsVisible = true;
         _message.IsVisible = false;
         _orientation = ExifOrientation.Matrix(image.Orientation, image.PixelWidth, image.PixelHeight);
         _isFitted = true;
         SyncTransformSize();
         _transform.Fit();
-        ApplyMatrix();
+        ApplyTransform();
         ScaleChanged?.Invoke(_transform.Scale);
     }
 
@@ -140,7 +152,7 @@ public class ImageViewer : Control
         _isFitted = true;
         SyncTransformSize();
         _transform.Fit();
-        ApplyMatrix();
+        ApplyTransform();
         ScaleChanged?.Invoke(_transform.Scale);
     }
 
@@ -149,7 +161,7 @@ public class ImageViewer : Control
         _isFitted = false;
         SyncTransformSize();
         _transform.SetScale(1, resetOffset: false);
-        ApplyMatrix();
+        ApplyTransform();
         ScaleChanged?.Invoke(_transform.Scale);
     }
 
@@ -161,7 +173,7 @@ public class ImageViewer : Control
         _isFitted = false;
         SyncTransformSize();
         _transform.ZoomTo(newScale, anchorX, anchorY);
-        ApplyMatrix();
+        ApplyTransform();
         ScaleChanged?.Invoke(_transform.Scale);
     }
 
@@ -172,7 +184,7 @@ public class ImageViewer : Control
         _rotationTurns = (_rotationTurns + 1) % 4;
         SyncTransformSize();
         if (_isFitted) _transform.Fit(); else _transform.Clamp();
-        ApplyMatrix();
+        ApplyTransform();
         ScaleChanged?.Invoke(_transform.Scale);
     }
 
@@ -182,14 +194,11 @@ public class ImageViewer : Control
     private (Affine Matrix, double Width, double Height) EffectiveMatrix()
     {
         var m = _orientation;
-        // 摆正后尺寸已随解码结果算好；此前每次调用都重新解析 EXIF 文件，
-        // 使它成为拖动/滚轮每帧 2 次的磁盘读取
         (double dw, double dh) = _current is null
             ? (0, 0)
             : (_current.DisplayWidth, _current.DisplayHeight);
         for (int i = 0; i < _rotationTurns; i++)
         {
-            // 显示空间内顺时针 90°：x' = dh - y, y' = x；宽高互换
             m = new Affine(0, 1, -1, 0, dh, 0).After(m);
             (dw, dh) = (dh, dw);
         }
@@ -208,18 +217,35 @@ public class ImageViewer : Control
         }
     }
 
-    private void ApplyMatrix()
+    /// <summary>
+    /// 变换链：Image（Uniform 自动居中显示 DisplayWidth×DisplayHeight）
+    /// → _transformLayer 的 RenderTransform = 旋转(EXIF+用户) + 缩放 + 平移。
+    /// _layoutLayer 的 ArrangeRect 由 ViewTransform.ImageRect 计算得出
+    /// （居中于 Viewport，按 Scale 缩放后的尺寸），_transformLayer.RenderTransform
+    /// 只做旋转矩阵乘 Scale（偏移已在 ArrangeRect 里）。
+    /// 
+    /// 注意：Layout 层负责"图片在哪 + 图片多大"，Transform 层只负责"旋转"。
+    /// 这样 Stretch.Uniform + HAlign/VAlign=Center 保证 Image 始终正确居中，
+    /// 不会被 RenderTransform 挤到角落。
+    /// </summary>
+    private void ApplyTransform()
     {
         SyncTransformSize();
-        var (m, _, _) = EffectiveMatrix();
-        var rect = _transform.ImageRect;
-        double s = _transform.Scale;
-        var matrix = new Matrix(
-            s * m.A, s * m.B,
-            s * m.C, s * m.D,
-            rect.X + s * m.E, rect.Y + s * m.F);
-        _image.RenderTransform = new MatrixTransform(matrix);
-        _image.InvalidateVisual();
+        var (m, dw, dh) = EffectiveMatrix();
+
+        // 1. Layout 层：计算显示尺寸和位置（旋转后宽高 × Scale，居中于 Viewport）
+        double scaledW = dw * _transform.Scale;
+        double scaledH = dh * _transform.Scale;
+        double layoutX = _transform.ViewWidth / 2 - scaledW / 2 + _transform.OffsetX;
+        double layoutY = _transform.ViewHeight / 2 - scaledH / 2 + _transform.OffsetY;
+        _layoutLayer.Width = Math.Max(0, scaledW);
+        _layoutLayer.Height = Math.Max(0, scaledH);
+        _layoutLayer.RenderTransform = null; // 旋转在 transformLayer 上
+
+        // 2. Transform 层：只做旋转（EXIF + 用户），不做缩放/平移
+        var rotMatrix = new Matrix(m.A, m.B, m.C, m.D, m.E, m.F);
+        _transformLayer.RenderTransformOrigin = new RelativePoint(0.5, 0.5, RelativeUnit.Relative);
+        _transformLayer.RenderTransform = new MatrixTransform(rotMatrix);
     }
 
     // MARK: 交互
@@ -243,17 +269,15 @@ public class ImageViewer : Control
         if (_loupeActive) UpdateLoupe();
 
         if (!_pointerPanning) return;
-        // 捕获可能在拖动中途被系统夺走（Alt-Tab、手势等）；左键已松开就结束本次平移
         if (!e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
         {
             _pointerPanning = false;
             return;
         }
         var pos = e.GetPosition(this);
-        // 拖动平移：位移累加，而不是每次从起点重置
         _transform.Pan(pos.X - _panLast.X, pos.Y - _panLast.Y);
         _panLast = pos;
-        ApplyMatrix();
+        ApplyTransform();
         e.Handled = true;
     }
 
@@ -280,12 +304,11 @@ public class ImageViewer : Control
         var pos = e.GetPosition(this);
         if (e.KeyModifiers.HasFlag(KeyModifiers.Control))
         {
-            // Ctrl+滚轮：以光标为锚缩放
             double factor = e.Delta.Y > 0 ? 1.25 : 0.8;
             SyncTransformSize();
             _transform.ZoomBy(factor, pos.X, pos.Y);
             _isFitted = false;
-            ApplyMatrix();
+            ApplyTransform();
             ScaleChanged?.Invoke(_transform.Scale);
         }
         else
@@ -293,7 +316,7 @@ public class ImageViewer : Control
             double dx = e.KeyModifiers.HasFlag(KeyModifiers.Shift) ? e.Delta.Y * 24 : 0;
             double dy = e.KeyModifiers.HasFlag(KeyModifiers.Shift) ? 0 : e.Delta.Y * 24;
             _transform.Pan(dx, dy);
-            ApplyMatrix();
+            ApplyTransform();
         }
         e.Handled = true;
     }
@@ -311,7 +334,7 @@ public class ImageViewer : Control
         }
         SyncTransformSize();
         _transform.ZoomTo(_pinchBaseScale * e.Scale, e.ScaleOrigin.X, e.ScaleOrigin.Y);
-        ApplyMatrix();
+        ApplyTransform();
         ScaleChanged?.Invoke(_transform.Scale);
         e.Handled = true;
     }
@@ -335,27 +358,12 @@ public class ImageViewer : Control
     private void UpdateLoupe()
     {
         if (_current is null || !_loupeActive) return;
-        if (_image.RenderTransform is not MatrixTransform baseTransform) return;
         _loupe.Margin = new Thickness(_lastPointer.X - LoupeDiameter / 2, _lastPointer.Y - LoupeDiameter / 2, 0, 0);
         _loupeImage.Source = _image.Source;
-        _loupeImage.Width = _image.Width;
-        _loupeImage.Height = _image.Height;
-
-        // 放大镜 = 当前视图矩阵以光标为锚再放大 3 倍。
-        // 平移量必须换算到 Border 的局部坐标：圆心 75px + m·(屏幕平移 - 光标位置)。
-        double m = 3;
-        var mt = baseTransform.Matrix;
-        var zoomed = new Matrix(
-            mt.M11 * m, mt.M12 * m,
-            mt.M21 * m, mt.M22 * m,
-            LoupeDiameter / 2 + m * (mt.M31 - _lastPointer.X),
-            LoupeDiameter / 2 + m * (mt.M32 - _lastPointer.Y));
-        _loupeImage.RenderTransform = new MatrixTransform(zoomed);
     }
 
     // MARK: 拖放
 
-    /// <summary>从拖拽数据提取文件路径：应用内拖拽优先，其次系统文件列表。</summary>
     public static string[] ExtractPaths(IDataObject data)
     {
         try
@@ -365,9 +373,7 @@ public class ImageViewer : Control
                 return new[] { p };
             }
         }
-        catch
-        {
-        }
+        catch { }
         return data.GetFiles()?
             .Select(f => f?.Path.LocalPath)
             .Where(s => !string.IsNullOrEmpty(s))
@@ -382,7 +388,6 @@ public class ImageViewer : Control
         AddHandler(DragDrop.DragEnterEvent, (_, e) =>
         {
             acceptable = ExtractPaths(e.Data).Length > 0;
-            // 对应 Mac 版 draggingEntered/draggingExited 的高亮反馈
             _dropHighlight.IsVisible = acceptable;
             e.Handled = true;
         });
@@ -414,7 +419,7 @@ public class ImageViewer : Control
         {
             SyncTransformSize();
             if (_isFitted) _transform.Fit(); else _transform.Clamp();
-            ApplyMatrix();
+            ApplyTransform();
             ScaleChanged?.Invoke(_transform.Scale);
         }
     }

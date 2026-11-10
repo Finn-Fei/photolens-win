@@ -110,12 +110,12 @@
       <Button Classes="tool" x:Name="BtnActual" Content="实际大小" HorizontalAlignment="Right" ToolTip.Tip="0 或双击" />
     </StackPanel>
 
-    <Grid Grid.Row="2" ColumnDefinitions="Auto,1*">
-      <local:Filmstrip x:Name="Strip" Width="232" Grid.Column="0" />
-      <Border Grid.Column="0" Classes="divider" Margin="0,0,0,0" x:Name="StripDivider"
-              HorizontalAlignment="Right" VerticalAlignment="Stretch" />
+    <Grid Grid.Row="2" ColumnDefinitions="232,Auto,1*">
+      <local:Filmstrip x:Name="Strip" Width="232" MinWidth="120" MaxWidth="480"
+                       Grid.Column="0" VerticalAlignment="Stretch" />
+      <GridSplitter Grid.Column="1" Width="5" Background="#24282C" HorizontalAlignment="Stretch" />
 
-      <Grid Grid.Column="1" x:Name="MainSplit" ColumnDefinitions="1*,0,0">
+      <Grid Grid.Column="2" x:Name="MainSplit" ColumnDefinitions="1*,0,0">
         <!-- 主画布 -->
         <Panel Grid.Column="0">
           <local:ImageViewer x:Name="MainViewer" />

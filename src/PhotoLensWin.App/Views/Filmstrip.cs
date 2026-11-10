@@ -7,6 +7,7 @@ using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
+using Avalonia.Threading;
 using Avalonia.VisualTree;
 using PhotoLensWin.App.Services;
 using PhotoLensWin.Core;
@@ -14,14 +15,20 @@ using PhotoLensWin.Core;
 namespace PhotoLensWin.App.Views;
 
 /// <summary>
-/// 胶片缩略图栏。事件语义与 Mac 版一致：
-/// 按下仅记录位置不选中；位移超过阈值进入拖拽会话；松开时未拖拽才判定为点击选中。
+/// 胶片缩略图栏：外层 Border 负责拖拽/点击事件，内部 ScrollViewer 负责滚动。
+/// 两者职责分离，互不抢占事件路由。
 /// </summary>
-public class Filmstrip : ScrollViewer
+public class Filmstrip : Border
 {
     private const double DragThreshold = 4;
-    private const int HighPriorityCount = 20; // 前 N 张优先解码，其余排队
+    private const int HighPriorityCount = 20;
 
+    private readonly ScrollViewer _scroller = new()
+    {
+        VerticalScrollBarVisibility = ScrollBarVisibility.Visible,
+        HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+        Padding = new Thickness(10),
+    };
     private readonly StackPanel _list = new();
     private readonly List<FilmItem> _items = new();
     private bool _pointerDown;
@@ -33,22 +40,21 @@ public class Filmstrip : ScrollViewer
 
     public ImageEntry? Selected { get; private set; }
 
-    /// <summary>XAML 无参构造；宿主可注入共享的缩略图缓存。</summary>
     public ThumbnailStore Store { get; set; } = new();
 
     public Filmstrip()
     {
-        VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
-        HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled;
-        Padding = new Thickness(10);
-        Content = _list;
+        _scroller.Content = _list;
+        Child = _scroller;
 
-        // 事件必须挂在捕获目标（this）上：OnPress 里 Capture(this) 后，
-        // 指针事件只路由到 this 及其祖先，挂在子元素 _list 上会永远收不到 Moved/Released
+        // 外层 Border 处理拖拽/点击：Capture(this) 后事件都路由到 Border，
+        // 内部 ScrollViewer 不会被干扰（滚轮由 ScrollViewer 基类自己处理）
         PointerPressed += OnPress;
         PointerMoved += OnMove;
         PointerReleased += OnRelease;
     }
+
+    // MARK: 对外 API
 
     public void SetItems(IReadOnlyList<ImageEntry> entries, string? selectedPath, bool scrollIntoView)
     {
@@ -67,7 +73,6 @@ public class Filmstrip : ScrollViewer
         var target = selectedPath is null ? null : _items.FirstOrDefault(i => i.Entry.FullPath == selectedPath);
         if (target is not null)
         {
-            // 静默初始化选中：宿主随后会显式 SelectIndex，重复广播会导致同一图解码两次
             Select(target, scrollIntoView: false, notify: false);
         }
     }
@@ -75,7 +80,12 @@ public class Filmstrip : ScrollViewer
     public void ScrollToSelection()
     {
         var item = _items.FirstOrDefault(i => ReferenceEquals(i.Entry, Selected));
-        item?.BringIntoView();
+        if (item is null) return;
+        // Post 一帧让 ScrollViewer 重新 layout 后再滚动
+        Dispatcher.UIThread.Post(() =>
+        {
+            try { item.BringIntoView(); } catch { }
+        }, DispatcherPriority.Loaded);
     }
 
     public void RefreshSelectionBorder()
@@ -85,6 +95,8 @@ public class Filmstrip : ScrollViewer
             item.SetSelected(item.Entry == Selected);
         }
     }
+
+    // MARK: 选中
 
     private void Select(FilmItem item, bool scrollIntoView = true, bool notify = true)
     {
@@ -103,6 +115,8 @@ public class Filmstrip : ScrollViewer
         return source as FilmItem;
     }
 
+    // MARK: 拖拽/点击
+
     private void OnPress(object? sender, PointerPressedEventArgs e)
     {
         var item = ItemUnder(e.Source as Visual);
@@ -110,7 +124,6 @@ public class Filmstrip : ScrollViewer
         var props = e.GetCurrentPoint(this).Properties;
         if (!props.IsLeftButtonPressed) return;
 
-        // 按下仅记录，不触发选中
         _pointerDown = true;
         _dragging = false;
         _pressItem = item;
@@ -125,7 +138,6 @@ public class Filmstrip : ScrollViewer
         var pos = e.GetPosition(this);
         if (Distance(pos, _pressPoint) < DragThreshold) return;
 
-        // 位移超过阈值：进入拖拽会话（DoDragDrop 同步阻塞到拖放结束）
         _dragging = true;
         var path = _pressItem.Entry.FullPath;
         var data = new DataObject();
@@ -137,9 +149,9 @@ public class Filmstrip : ScrollViewer
 
     private void OnRelease(object? sender, PointerReleasedEventArgs e)
     {
-        if (_pressItem is not null && !_dragging && e.GetCurrentPoint(this).Properties.PointerUpdateKind == PointerUpdateKind.LeftButtonReleased)
+        if (_pressItem is not null && !_dragging &&
+            e.GetCurrentPoint(this).Properties.PointerUpdateKind == PointerUpdateKind.LeftButtonReleased)
         {
-            // 未进入拖拽：判定为点击选中
             Select(_pressItem);
         }
         _pointerDown = false;
@@ -152,7 +164,8 @@ public class Filmstrip : ScrollViewer
     private static double Distance(Point a, Point b) =>
         Math.Sqrt(Math.Pow(a.X - b.X, 2) + Math.Pow(a.Y - b.Y, 2));
 
-    /// <summary>单个缩略图卡片。</summary>
+    // MARK: FilmItem
+
     private sealed class FilmItem : Border
     {
         private static readonly IBrush IdleBrush = new SolidColorBrush(Color.Parse("#16181A"));
@@ -162,6 +175,7 @@ public class Filmstrip : ScrollViewer
 
         private readonly Image _thumb = new() { Stretch = Stretch.Uniform };
         private readonly ThumbnailStore _thumbs;
+        private readonly bool _highPriority;
         private bool _attached;
 
         public FilmItem(ImageEntry entry, ThumbnailStore thumbs, bool highPriority)
@@ -169,8 +183,8 @@ public class Filmstrip : ScrollViewer
             Entry = entry;
             _thumbs = thumbs;
             _highPriority = highPriority;
-            // 尺寸/外观用本地值：Window.Styles 的 filmItem 样式 setter 对此卡片未命中
-            Width = 208;
+            // 宽度自适应 ScrollViewer 内容区（232 - Padding 10*2 - ScrollBar ~18 ≈ 194）
+            // 不设固定 Width，让 Avalonia 自动填充
             Height = 92;
             CornerRadius = new CornerRadius(8);
             Margin = new Thickness(0, 0, 0, 10);
@@ -180,7 +194,6 @@ public class Filmstrip : ScrollViewer
         }
 
         public ImageEntry Entry { get; }
-        private readonly bool _highPriority;
 
         public void SetSelected(bool selected)
         {
@@ -213,8 +226,7 @@ public class Filmstrip : ScrollViewer
         {
             var bitmap = await _thumbs.LoadAsync(path, _highPriority);
             if (bitmap is null) return;
-            // 解码在后台完成，回到 UI 线程再应用到仍挂着同一文件的卡片
-            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            await Dispatcher.UIThread.InvokeAsync(() =>
             {
                 if (_attached && Entry.FullPath == path) _thumb.Source = bitmap;
             });
