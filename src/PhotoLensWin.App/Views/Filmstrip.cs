@@ -20,6 +20,7 @@ namespace PhotoLensWin.App.Views;
 public class Filmstrip : ScrollViewer
 {
     private const double DragThreshold = 4;
+    private const int HighPriorityCount = 20; // 前 N 张优先解码，其余排队
 
     private readonly StackPanel _list = new();
     private readonly List<FilmItem> _items = new();
@@ -55,9 +56,9 @@ public class Filmstrip : ScrollViewer
         _items.Clear();
         _list.Children.Clear();
 
-        foreach (var entry in entries)
+        for (int i = 0; i < entries.Count; i++)
         {
-            var item = new FilmItem(entry, Store);
+            var item = new FilmItem(entries[i], Store, i < HighPriorityCount);
             _list.Children.Add(item);
             _items.Add(item);
         }
@@ -163,10 +164,11 @@ public class Filmstrip : ScrollViewer
         private readonly ThumbnailStore _thumbs;
         private bool _attached;
 
-        public FilmItem(ImageEntry entry, ThumbnailStore thumbs)
+        public FilmItem(ImageEntry entry, ThumbnailStore thumbs, bool highPriority)
         {
             Entry = entry;
             _thumbs = thumbs;
+            _highPriority = highPriority;
             // 尺寸/外观用本地值：Window.Styles 的 filmItem 样式 setter 对此卡片未命中
             Width = 208;
             Height = 92;
@@ -178,6 +180,7 @@ public class Filmstrip : ScrollViewer
         }
 
         public ImageEntry Entry { get; }
+        private readonly bool _highPriority;
 
         public void SetSelected(bool selected)
         {
@@ -208,7 +211,7 @@ public class Filmstrip : ScrollViewer
 
         private async Task LoadThumbAsync(string path)
         {
-            var bitmap = await _thumbs.LoadAsync(path);
+            var bitmap = await _thumbs.LoadAsync(path, _highPriority);
             if (bitmap is null) return;
             // 解码在后台完成，回到 UI 线程再应用到仍挂着同一文件的卡片
             await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>

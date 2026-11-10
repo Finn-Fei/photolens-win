@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Media.Imaging;
@@ -8,28 +9,35 @@ using Avalonia.Media.Imaging;
 namespace PhotoLensWin.App.Services;
 
 /// <summary>
-/// 缩略图缓存：异步生成 + 有上限（300 张），对应 Mac 版 ThumbnailStore。
-/// 加载统一走 LoadAsync（缓存命中立即返回）；UI 侧在 Dispatcher 上应用结果。
+/// 缩略图缓存：异步生成 + 有上限（300 张），LRU 淘汰，并发 4。
+/// 对应 Mac 版 ThumbnailStore。
 /// </summary>
-public sealed class ThumbnailStore
+public sealed class ThumbnailStore : IDisposable
 {
     private sealed class Entry
     {
         public Bitmap? Bitmap;
+        public DateTime LastAccessTime = DateTime.UtcNow;
     }
 
     private readonly ConcurrentDictionary<string, Entry> _cache = new();
-    // 解码放后台线程池，同时最多 4 个并发；此前在 UI 线程同步解码，大目录会逐张卡顿
+    // 解码放后台线程池；高优先级（前 N 张）用独立通道（2 并发，跳过普通队列）
     private readonly SemaphoreSlim _gate = new(4, 4);
+    private readonly SemaphoreSlim _highPriorityGate = new(2, 2);
     private readonly int _maxCount = 300;
+    private bool _disposed;
 
-    /// <summary>加载并缓存缩略图；已缓存则立即返回，否则后台解码（最多 4 个并发）。</summary>
-    public async Task<Bitmap?> LoadAsync(string path)
+    /// <summary>加载并缓存缩略图；已缓存则立即返回，否则后台解码。
+    /// highPriority=true 时绕过普通队列，用独立的 2 并发通道，优先完成前 N 张。</summary>
+    public async Task<Bitmap?> LoadAsync(string path, bool highPriority = false)
     {
+        if (_disposed) return null;
+
         var cached = GetCached(path);
         if (cached is not null) return cached;
 
-        await _gate.WaitAsync();
+        var gate = highPriority ? _highPriorityGate : _gate;
+        await gate.WaitAsync();
         try
         {
             cached = GetCached(path);
@@ -50,38 +58,71 @@ public sealed class ThumbnailStore
 
             if (result is not null)
             {
-                _cache[path] = new Entry { Bitmap = result };
-                while (_cache.Count > _maxCount)
-                {
-                    // 淘汰任意一个已完成条目（无时间戳，取遍历序即可）
-                    foreach (var (key, value) in _cache)
-                    {
-                        if (value.Bitmap is not null)
-                        {
-                            _cache.TryRemove(key, out _);
-                            break;
-                        }
-                    }
-                    break;
-                }
+                var entry = new Entry { Bitmap = result, LastAccessTime = DateTime.UtcNow };
+                _cache[path] = entry;
+                EvictIfNeeded();
             }
             return result;
         }
         finally
         {
-            _gate.Release();
+            gate.Release();
         }
     }
 
-    /// <summary>同步查询缓存，未命中返回 null。</summary>
+    /// <summary>LRU 淘汰：按 LastAccessTime 最旧的先删。</summary>
+    private void EvictIfNeeded()
+    {
+        while (_cache.Count > _maxCount)
+        {
+            string? oldest = null;
+            DateTime oldestTime = DateTime.MaxValue;
+            foreach (var (key, entry) in _cache)
+            {
+                if (entry.Bitmap is null) continue;
+                if (entry.LastAccessTime < oldestTime)
+                {
+                    oldestTime = entry.LastAccessTime;
+                    oldest = key;
+                }
+            }
+            if (oldest is null) break;
+            if (_cache.TryRemove(oldest, out var removed))
+            {
+                try { removed.Bitmap?.Dispose(); } catch { }
+            }
+        }
+    }
+
+    /// <summary>同步查询缓存，未命中返回 null。命中时更新访问时间。</summary>
     public Bitmap? GetCached(string path)
     {
-        var entry = _cache.GetOrAdd(path, _ => new Entry());
-        lock (entry)
+        if (_cache.TryGetValue(path, out var entry))
         {
-            return entry.Bitmap;
+            lock (entry)
+            {
+                if (entry.Bitmap is not null)
+                {
+                    entry.LastAccessTime = DateTime.UtcNow;
+                    return entry.Bitmap;
+                }
+            }
         }
+        return null;
     }
 
     public void Prefetch(string path) => _ = LoadAsync(path);
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        _gate.Dispose();
+        _highPriorityGate.Dispose();
+        foreach (var (_, entry) in _cache)
+        {
+            try { entry.Bitmap?.Dispose(); } catch { }
+        }
+        _cache.Clear();
+    }
 }

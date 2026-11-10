@@ -55,6 +55,7 @@ public sealed class ImageStore
     /// <summary>
     /// 全量解码：Skia 一次解码同时服务显示与画质评分，
     /// EXIF 方向以显示矩阵呈现（不重写像素），与 Windows 照片应用惯例一致。
+    /// 同时缓存 metadata directories 避免后续重复读盘。
     /// </summary>
     public static async Task<FullImage?> LoadAsync(string path)
     {
@@ -88,14 +89,19 @@ public sealed class ImageStore
                     sk.RowBytes);
 
                 var quality = SampleQuality(sk);
-                int orientation = ExifHelper.Orientation(path);
+
+                // 一次性读 metadata，方向 + directories 全缓存
+                var directories = ExifLines.ReadDirectories(path);
+                int orientation = MetadataReader.Orientation(directories);
                 bool swapped = ExifOrientation.SwapsSides(orientation);
+
                 return new FullImage(
                     path, bitmap, sk, quality, orientation,
                     swapped ? sk.Height : sk.Width,
                     swapped ? sk.Width : sk.Height,
                     sk.Width, sk.Height,
-                    File.GetLastWriteTimeUtc(path));
+                    File.GetLastWriteTimeUtc(path),
+                    directories);
             }
             catch
             {
@@ -137,30 +143,7 @@ public sealed class ImageStore
     }
 }
 
-/// <summary>EXIF 方向的轻量读取。</summary>
-public static class ExifHelper
-{
-    public static int Orientation(string path)
-    {
-        try
-        {
-            var directories = MetadataExtractor.ImageMetadataReader.ReadMetadata(path);
-            var ifd0 = directories.OfType<MetadataExtractor.Formats.Exif.ExifIfd0Directory>().FirstOrDefault();
-            // TryGetInt32 是 MetadataExtractor 命名空间下的扩展方法（DirectoryExtensions）
-            if (ifd0 is not null && ifd0.TryGetInt32(0x0112, out int orientation))
-            {
-                return orientation;
-            }
-        }
-        catch
-        {
-            // 无 EXIF：默认不旋转
-        }
-        return 1;
-    }
-}
-
-/// <summary>加载完成的大图：位图 + 画质 + 方向 + 展示尺寸（已按 EXIF 方向摆正）。</summary>
+/// <summary>加载完成的大图：位图 + 画质 + 方向 + 展示尺寸 + 预缓存的 EXIF 元数据。</summary>
 public sealed record FullImage(
     string Path,
     Bitmap Bitmap,
@@ -171,7 +154,8 @@ public sealed record FullImage(
     int DisplayHeight,
     int PixelWidth,
     int PixelHeight,
-    DateTime ModifiedUtc) : IDisposable
+    DateTime ModifiedUtc,
+    IReadOnlyList<MetadataExtractor.Directory>? CachedDirectories) : IDisposable
 {
     public long ByteCost => (long)PixelWidth * PixelHeight * 4;
 
