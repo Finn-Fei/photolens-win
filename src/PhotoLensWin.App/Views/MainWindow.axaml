@@ -98,15 +98,16 @@
     <Menu Grid.Row="0" x:Name="TopMenu" />
 
     <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="6" Margin="8,4" x:Name="Toolbar">
-      <Button Classes="tool" x:Name="BtnOpenFolder" Content="打开文件夹" />
-      <Button Classes="tool" x:Name="BtnOpenImages" Content="打开图片" />
-      <Button Classes="tool" x:Name="BtnSort" Content="排序 ▾" />
-      <Button Classes="tool" x:Name="BtnCompare" Content="对比" />
-      <Button Classes="tool" x:Name="BtnInfo" Content="图片信息" />
-      <Button Classes="tool" x:Name="BtnList" Content="隐藏列表" />
+      <Button Classes="tool" x:Name="BtnOpenFolder" Content="打开文件夹" ToolTip.Tip="Ctrl+O 打开文件夹" />
+      <Button Classes="tool" x:Name="BtnOpenImages" Content="打开图片" ToolTip.Tip="Ctrl+Shift+O 打开多张图片" />
+      <Button Classes="tool" x:Name="BtnSort" Content="排序 ▾" ToolTip.Tip="切换排序方式" />
+      <Button Classes="tool" x:Name="BtnCompare" Content="对比" ToolTip.Tip="左右分栏对比两张图片" />
+      <Button Classes="tool" x:Name="BtnInfo" Content="图片信息" ToolTip.Tip="I 显示/隐藏 EXIF 信息面板" />
+      <Button Classes="tool" x:Name="BtnList" Content="隐藏列表" ToolTip.Tip="L 显示/隐藏胶片栏" />
+      <Button Classes="tool" x:Name="BtnSlideshow" Content="幻灯片" ToolTip.Tip="开始/停止自动播放" />
       <Panel HorizontalAlignment="Right" Width="10" />
-      <Button Classes="tool" x:Name="BtnFit" Content="适合窗口" HorizontalAlignment="Right" />
-      <Button Classes="tool" x:Name="BtnActual" Content="实际大小" HorizontalAlignment="Right" />
+      <Button Classes="tool" x:Name="BtnFit" Content="适合窗口" HorizontalAlignment="Right" ToolTip.Tip="F 或 9" />
+      <Button Classes="tool" x:Name="BtnActual" Content="实际大小" HorizontalAlignment="Right" ToolTip.Tip="0 或双击" />
     </StackPanel>
 
     <Grid Grid.Row="2" ColumnDefinitions="Auto,1*">

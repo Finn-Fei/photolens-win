@@ -10,8 +10,10 @@ using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Controls.Templates;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform.Storage;
+using Avalonia.Styling;
 using Avalonia.Threading;
 using PhotoLensWin.App.Services;
 using PhotoLensWin.Core;
@@ -25,6 +27,7 @@ public partial class MainWindow : Window
     private readonly ThumbnailStore _thumbs = new();
     private readonly ImageStore _imageStore = new();
     private readonly DispatcherTimer _toastTimer = new() { Interval = TimeSpan.FromSeconds(3) };
+    private readonly DispatcherTimer _slideshowTimer = new() { Interval = TimeSpan.FromSeconds(3) };
     private readonly MenuFlyout SortFlyout = new();
 
     private List<ImageEntry> _images = new();
@@ -39,6 +42,7 @@ public partial class MainWindow : Window
     private MemoryStream? _clipboardPng;
     private int _loadVersion;
     private bool _rebuildingPicker;
+    private bool _slideshowOn;
 
     public MainWindow()
     {
@@ -46,6 +50,7 @@ public partial class MainWindow : Window
         Strip.Store = _thumbs;
         WireControls();
         _toastTimer.Tick += (_, _) => ResetHint();
+        _slideshowTimer.Tick += (_, _) => Step(1);
     }
 
     // MARK: 启动
@@ -58,6 +63,8 @@ public partial class MainWindow : Window
         _showStrip = _settings.ShowFilmstrip;
         ApplyListVisibility();
         UpdateSortButton();
+        ApplyTheme(_settings.Theme);
+        RestoreWindowBounds();
 
         var args = Environment.GetCommandLineArgs().Skip(1).Where(a => !a.StartsWith('-')).ToArray();
         var snapshotPath = Environment.GetEnvironmentVariable("PHOTOLENS_SNAPSHOT");
@@ -89,7 +96,6 @@ public partial class MainWindow : Window
 
         if (Environment.GetEnvironmentVariable("PHOTOLENS_SNAPSHOT_BROWSE") == "1" && _images.Count > 0)
         {
-            // 逐张切换：覆盖缓存淘汰与位图释放路径，画面停在最后一张
             for (int i = 0; i < _images.Count; i++)
             {
                 SelectIndex(i, scrollStrip: false);
@@ -100,7 +106,6 @@ public partial class MainWindow : Window
 
         if (!string.IsNullOrEmpty(snapshotFolder))
         {
-            // 自验变体：布局稳定后再展开信息面板 / 对比模式
             bool wantInfo = Environment.GetEnvironmentVariable("PHOTOLENS_SNAPSHOT_INFO") == "1";
             bool wantCompare = Environment.GetEnvironmentVariable("PHOTOLENS_SNAPSHOT_COMPARE") == "1";
             if (wantInfo) ToggleInfo();
@@ -122,17 +127,64 @@ public partial class MainWindow : Window
             }
             catch (Exception ex)
             {
-                Console.Error.WriteLine("snapshot failed: " + ex.Message);
+                LogError("snapshot failed: " + ex.Message);
             }
         });
         (Application.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime)?.Shutdown(0);
+    }
+
+    // MARK: 窗口持久化
+
+    private void SaveWindowBounds()
+    {
+        try
+        {
+            _settings.WindowLeft = (int)(Position.X + 0.5);
+            _settings.WindowTop = (int)(Position.Y + 0.5);
+            _settings.WindowWidth = (int)(Bounds.Width + 0.5);
+            _settings.WindowHeight = (int)(Bounds.Height + 0.5);
+        }
+        catch { /* 位置可能未设置（首次启动），忽略 */ }
+    }
+
+    private void RestoreWindowBounds()
+    {
+        if (_settings.WindowLeft < 0 || _settings.WindowTop < 0) return;
+        // 简单校验：确保恢复的位置不会完全在屏幕外
+        try
+        {
+            Position = new PixelPoint(_settings.WindowLeft, _settings.WindowTop);
+            Width = _settings.WindowWidth;
+            Height = _settings.WindowHeight;
+        }
+        catch { /* 无效值忽略 */ }
+    }
+
+    // MARK: 主题
+
+    private void ApplyTheme(string? themeName)
+    {
+        var variant = string.Equals(themeName, "Light", StringComparison.OrdinalIgnoreCase)
+            ? ThemeVariant.Light
+            : ThemeVariant.Dark;
+        if (Application.Current is not null)
+            Application.Current.RequestedThemeVariant = variant;
+    }
+
+    private void ToggleTheme()
+    {
+        bool isLight = string.Equals(_settings.Theme, "Light", StringComparison.OrdinalIgnoreCase);
+        _settings.Theme = isLight ? "Dark" : "Light";
+        SettingsStore.Save(_settings);
+        ApplyTheme(_settings.Theme);
+        UpdateRecentMenu();
+        ShowToast($"已切换到{_settings.Theme}主题");
     }
 
     // MARK: 控件接线
 
     private void WireControls()
     {
-        // 正在显示的图由宿主保护，缓存淘汰时不得释放
         _imageStore.IsProtected = img =>
             ReferenceEquals(img, _current) || ReferenceEquals(img, CompareViewer.Current);
 
@@ -142,14 +194,13 @@ public partial class MainWindow : Window
 
         BtnSort.Click += (_, _) =>
         {
-            // 不能依赖 Button.Flyout 的自动弹出：Click 已由 Button 内部先派发完，
-            // 此时才赋值 Flyout 不会被自动显示（首次点击无反应）
             BuildSortFlyout();
             SortFlyout.ShowAt(BtnSort);
         };
         BtnCompare.Click += (_, _) => ToggleCompare();
         BtnInfo.Click += (_, _) => ToggleInfo();
         BtnList.Click += (_, _) => ToggleList();
+        BtnSlideshow.Click += (_, _) => ToggleSlideshow();
 
         BtnFit.Click += (_, _) => MainViewer.FitToWindow();
         BtnActual.Click += (_, _) => MainViewer.SetActualSize();
@@ -177,7 +228,12 @@ public partial class MainWindow : Window
 
         KeyDown += OnKeyDown;
         KeyUp += OnKeyUp;
-        Closed += (_, _) => SaveSettings();
+        Closed += (_, _) =>
+        {
+            StopSlideshow();
+            SaveWindowBounds();
+            SaveSettings();
+        };
     }
 
     /// <summary>菜单在代码中构建：复用已有的操作方法，快捷键文案与 OnKeyDown 保持一处维护。</summary>
@@ -190,10 +246,21 @@ public partial class MainWindow : Window
             return item;
         }
 
+        // 文件
         var file = new MenuItem { Header = "文件(_F)" };
         file.Items.Add(Item("打开文件夹…　Ctrl+O", () => _ = OpenFolderAsync()));
         file.Items.Add(Item("打开图片…　Ctrl+Shift+O", () => _ = OpenFilesAsync()));
 
+        // 最近文件夹（动态重建）
+        var recentSub = new MenuItem { Header = "最近打开" };
+        recentSub.Items.Add(Item("（加载中…）", () => { }));
+        file.Items.Add(recentSub);
+        UpdateRecentMenu(recentSub);
+
+        file.Items.Add(new Separator());
+        file.Items.Add(Item("退出", () => Close()));
+
+        // 视图
         var view = new MenuItem { Header = "视图(_V)" };
         view.Items.Add(Item("显示/隐藏列表　L", ToggleList));
         view.Items.Add(Item("适合窗口　9", MainViewer.FitToWindow));
@@ -205,11 +272,45 @@ public partial class MainWindow : Window
         view.Items.Add(Item("图片信息　I", ToggleInfo));
         view.Items.Add(Item("全屏　F11", ToggleFullscreen));
         view.Items.Add(new Separator());
+        view.Items.Add(Item("主题：暗色/亮色", ToggleTheme));
+        view.Items.Add(new Separator());
         view.Items.Add(Item("上一张　[", () => Step(-1)));
         view.Items.Add(Item("下一张　]", () => Step(1)));
+        view.Items.Add(Item("开始幻灯片", ToggleSlideshow));
 
         TopMenu.Items.Add(file);
         TopMenu.Items.Add(view);
+    }
+
+    /// <summary>更新最近文件夹子菜单。传入指定 sub 或自动找。</summary>
+    private void UpdateRecentMenu(MenuItem? targetSub = null)
+    {
+        MenuItem? sub = targetSub ?? FindRecentSub();
+        if (sub is null) return;
+        sub.Items.Clear();
+
+        var folders = _settings.RecentFolders.Where(Directory.Exists).Take(AppSettings.MaxRecentFolders).ToList();
+        if (folders.Count == 0)
+        {
+            sub.Items.Add(new MenuItem { Header = "（暂无）", IsEnabled = false });
+            return;
+        }
+        foreach (var folder in folders)
+        {
+            var captured = folder;
+            var item = new MenuItem { Header = captured };
+            item.Click += (_, _) => LoadFolder(captured);
+            sub.Items.Add(item);
+        }
+        // 清理不存在的目录
+        _settings.RecentFolders = folders;
+        if (targetSub is null) SaveSettings();
+    }
+
+    private MenuItem? FindRecentSub()
+    {
+        var fileMenu = TopMenu.Items.OfType<MenuItem>().FirstOrDefault(m => m.Header?.ToString()?.Contains("文件") == true);
+        return fileMenu?.Items.OfType<MenuItem>().FirstOrDefault(m => m.Header?.ToString()?.Contains("最近") == true);
     }
 
     // MARK: 打开与载入
@@ -250,7 +351,9 @@ public partial class MainWindow : Window
     private void LoadFolder(string folder)
     {
         _settings.LastFolder = folder;
+        SettingsStore.TouchRecentFolder(_settings, folder);
         SaveSettings();
+        UpdateRecentMenu();
         LoadFromPaths(new[] { folder }, keepCurrent: true);
     }
 
@@ -260,7 +363,6 @@ public partial class MainWindow : Window
         string? currentPath = keepCurrent && _current is not null ? _current.Path : null;
         var sort = _sort;
         int version = ++_loadVersion;
-        // 递归枚举与排序移出 UI 线程；版本号保证只有最后一次载入生效
         _ = LoadFromPathsAsync(paths, currentPath, sort, version);
     }
 
@@ -273,6 +375,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
+            LogError("LoadFromPathsAsync failed: " + ex.Message);
             if (version == _loadVersion) ShowToast("载入失败：" + ex.Message);
             return;
         }
@@ -294,7 +397,6 @@ public partial class MainWindow : Window
         if (_compareOn && _comparePath is not null &&
             _images.All(i => i.FullPath != _comparePath))
         {
-            // 外部图片进入对比后加入列表前，先清掉对比选择（对应 Mac 版行为）
             _comparePath = null;
             ComparePicker.SelectedIndex = -1;
             CompareViewer.ShowMessage("在下方列表中选择一张图片进行对比");
@@ -334,7 +436,6 @@ public partial class MainWindow : Window
 
         string? currentPath = _current?.Path;
         _images = sort.Apply(_images);
-        // 切换排序保持当前查看的图片位置，不跳转
         int index = ImageCatalog.StartIndexFor(_images, currentPath);
         Strip.SetItems(_images, currentPath, scrollIntoView: false);
         RebuildComparePicker();
@@ -360,7 +461,6 @@ public partial class MainWindow : Window
 
         _ = LoadAndPresentAsync(entry);
 
-        // 对比模式开启时，主图与对比图必须不同：自动选择相邻一张
         if (_compareOn && (_comparePath is null || _comparePath == entry.FullPath))
         {
             int candidate = index + 1 < _images.Count ? index + 1 : index - 1;
@@ -393,7 +493,6 @@ public partial class MainWindow : Window
         {
             if (IsStillCurrent(entry))
             {
-                // 解码失败时画布已清空，信息面板不能再显示上一张的数据
                 _current = null;
                 MainViewer.ShowMessage("这张图片无法解码：" + entry.Name);
                 if (_infoOn) RefreshInfo();
@@ -408,7 +507,6 @@ public partial class MainWindow : Window
         }
     }
 
-    /// <summary>异步载入完成时，列表中当前项仍是这张图（防止快速切换时的旧结果覆盖）。</summary>
     private bool IsStillCurrent(ImageEntry entry) =>
         _currentIndex >= 0 && _currentIndex < _images.Count
         && _images[_currentIndex].FullPath == entry.FullPath;
@@ -442,8 +540,46 @@ public partial class MainWindow : Window
 
     private void Step(int direction)
     {
-        if (!CanStep(direction)) return;
+        if (!CanStep(direction))
+        {
+            if (_slideshowOn && _images.Count > 0)
+            {
+                // 幻灯片模式：到末尾自动回到开头
+                int next = _currentIndex + direction;
+                if (next < 0) next = _images.Count - 1;
+                if (next >= _images.Count) next = 0;
+                SelectIndex(next);
+            }
+            return;
+        }
         SelectIndex(_currentIndex + direction);
+    }
+
+    // MARK: 幻灯片
+
+    private void ToggleSlideshow()
+    {
+        if (_images.Count < 2)
+        {
+            ShowToast("至少需要两张图片才能幻灯片");
+            return;
+        }
+        if (_slideshowOn) StopSlideshow(); else StartSlideshow();
+    }
+
+    private void StartSlideshow()
+    {
+        _slideshowOn = true;
+        BtnSlideshow.Classes.Add("toggleOn");
+        _slideshowTimer.Start();
+        ShowToast("开始幻灯片（3 秒/张，按 Esc 停止）");
+    }
+
+    private void StopSlideshow()
+    {
+        _slideshowOn = false;
+        BtnSlideshow.Classes.Remove("toggleOn");
+        _slideshowTimer.Stop();
     }
 
     // MARK: 对比模式
@@ -463,7 +599,6 @@ public partial class MainWindow : Window
             MainSplit.ColumnDefinitions = new ColumnDefinitions("1*,Auto,1*");
             BtnCompare.Classes.Add("toggleOn");
 
-            // 默认选中与当前不同的下一张
             int candidate = _currentIndex + 1 < _images.Count ? _currentIndex + 1 : 0;
             SetCompareImage(_images[candidate].FullPath, updatePicker: true);
         }
@@ -471,7 +606,6 @@ public partial class MainWindow : Window
         {
             _compareOn = false;
             _comparePath = null;
-            // 清空 Current，避免它的位图被缓存保护而长期占用
             CompareViewer.ShowMessage("");
             CompareArea.IsVisible = false;
             CompareDivider.IsVisible = false;
@@ -511,7 +645,6 @@ public partial class MainWindow : Window
             {
                 if (IsCurrentCompare(path))
                 {
-                    // 失败时把选择状态一起清掉，避免下拉框指向无法显示的文件
                     _comparePath = null;
                     ComparePicker.SelectedIndex = -1;
                     CompareViewer.ShowMessage("这张图片无法解码：" + Path.GetFileName(path));
@@ -520,14 +653,12 @@ public partial class MainWindow : Window
             }
             _imageStore.Put(cached);
         }
-        // 快速切换时丢弃过期结果：只有仍是当前对比选择才展示
         if (!IsCurrentCompare(path)) return;
         CompareViewer.Present(cached);
     }
 
     private bool IsCurrentCompare(string path) => _compareOn && _comparePath == path;
 
-    /// <summary>外部文件/文件夹拖到对比区：只替换对比画面，不加入列表。</summary>
     private void HandleCompareDrop(string[] paths)
     {
         if (!_compareOn) return;
@@ -538,17 +669,15 @@ public partial class MainWindow : Window
             return;
         }
         SetCompareImage(files[0].FullPath, updatePicker: false);
-        ComparePicker.SelectedIndex = -1; // 外部图不在列表里，清空选择避免条目与画面不一致
+        ComparePicker.SelectedIndex = -1;
         ShowToast("已放入对比栏（未加入列表）");
     }
 
     private void RebuildComparePicker()
     {
-        // 重建期间抑制 SelectionChanged，避免仅为恢复显示就重新载入对比图
         _rebuildingPicker = true;
         try
         {
-            // Avalonia ComboBox 无 DisplayMemberPath：用模板显示条目名，SelectedItem 仍为 ImageEntry
             ComparePicker.ItemTemplate = new FuncDataTemplate<ImageEntry>(
                 (entry, _) => new TextBlock
                 {
@@ -594,7 +723,8 @@ public partial class MainWindow : Window
         var lines = new List<string>();
         lines.AddRange(image.Quality.Lines);
         lines.Add("");
-        lines.AddRange(ExifLines.Build(image.Path, image.PixelWidth, image.PixelHeight, image.ModifiedUtc));
+        // 用解码时预缓存的 directories，避免重复磁盘读取
+        lines.AddRange(ExifLines.Build(image.Path, image.PixelWidth, image.PixelHeight, image.ModifiedUtc, image.CachedDirectories));
         InfoText.Text = string.Join('\n', lines);
     }
 
@@ -655,79 +785,33 @@ public partial class MainWindow : Window
     {
         switch (e.Key)
         {
-            case Key.Left:
-                Step(-1);
-                e.Handled = true;
-                break;
-            case Key.Right:
-                Step(1);
-                e.Handled = true;
-                break;
+            case Key.Left: Step(-1); e.Handled = true; break;
+            case Key.Right: Step(1); e.Handled = true; break;
             case Key.Space:
                 if (MainViewer.Current is not null)
                 {
                     if (MainViewer.IsFitted) MainViewer.SetActualSize(); else MainViewer.FitToWindow();
                 }
-                e.Handled = true;
-                break;
-            case Key.F:
-                // 与 Mac 版一致：F 与 9 都是「适合窗口」，不是全屏
-                MainViewer.FitToWindow();
-                e.Handled = true;
-                break;
-            case Key.F11:
-                ToggleFullscreen();
-                e.Handled = true;
-                break;
+                e.Handled = true; break;
+            case Key.F: MainViewer.FitToWindow(); e.Handled = true; break;
+            case Key.F11: ToggleFullscreen(); e.Handled = true; break;
             case Key.O when e.KeyModifiers.HasFlag(KeyModifiers.Control) && e.KeyModifiers.HasFlag(KeyModifiers.Shift):
-                _ = OpenFilesAsync();
-                e.Handled = true;
-                break;
+                _ = OpenFilesAsync(); e.Handled = true; break;
             case Key.O when e.KeyModifiers.HasFlag(KeyModifiers.Control):
-                _ = OpenFolderAsync();
-                e.Handled = true;
-                break;
-            case Key.I:
-                ToggleInfo();
-                e.Handled = true;
-                break;
-            case Key.L:
-                ToggleList();
-                e.Handled = true;
-                break;
-            case Key.R:
-                MainViewer.RotateClockwise();
-                e.Handled = true;
-                break;
-            case Key.D9:
-                MainViewer.FitToWindow();
-                e.Handled = true;
-                break;
-            case Key.D0 or Key.D1:
-                MainViewer.SetActualSize();
-                e.Handled = true;
-                break;
-            case Key.OemCloseBrackets or Key.PageDown:
-                Step(1);
-                e.Handled = true;
-                break;
-            case Key.OemOpenBrackets or Key.PageUp:
-                Step(-1);
-                e.Handled = true;
-                break;
-            case Key.OemPlus or Key.Add:
-                MainViewer.ZoomBy(1.25);
-                e.Handled = true;
-                break;
-            case Key.OemMinus or Key.Subtract:
-                MainViewer.ZoomBy(0.8);
-                e.Handled = true;
-                break;
+                _ = OpenFolderAsync(); e.Handled = true; break;
+            case Key.I: ToggleInfo(); e.Handled = true; break;
+            case Key.L: ToggleList(); e.Handled = true; break;
+            case Key.R: MainViewer.RotateClockwise(); e.Handled = true; break;
+            case Key.D9: MainViewer.FitToWindow(); e.Handled = true; break;
+            case Key.D0 or Key.D1: MainViewer.SetActualSize(); e.Handled = true; break;
+            case Key.OemCloseBrackets or Key.PageDown: Step(1); e.Handled = true; break;
+            case Key.OemOpenBrackets or Key.PageUp: Step(-1); e.Handled = true; break;
+            case Key.OemPlus or Key.Add: MainViewer.ZoomBy(1.25); e.Handled = true; break;
+            case Key.OemMinus or Key.Subtract: MainViewer.ZoomBy(0.8); e.Handled = true; break;
             case Key.Z when e.KeyModifiers == KeyModifiers.None:
-                MainViewer.ToggleLoupe(true);
-                e.Handled = true;
-                break;
+                MainViewer.ToggleLoupe(true); e.Handled = true; break;
             case Key.Escape:
+                if (_slideshowOn) { StopSlideshow(); e.Handled = true; break; }
                 if (WindowState == WindowState.FullScreen)
                 {
                     WindowState = WindowState.Normal;
@@ -782,7 +866,14 @@ public partial class MainWindow : Window
         savePng.Click += async (_, _) => await SaveCurrentAsAsync(isMain, jpeg: false);
         items.Add(savePng);
 
-        // ContextMenu.Items 只能逐个添加 MenuItem（Separator 不可加入）
+        if (isMain)
+        {
+            // 删除只在主菜单出现，对比栏不需要
+            var deleteItem = new MenuItem { Header = "移到回收站" };
+            deleteItem.Click += async (_, _) => await DeleteCurrentFileAsync();
+            items.Add(deleteItem);
+        }
+
         foreach (var item in items)
         {
             menu.Items.Add(item);
@@ -790,10 +881,7 @@ public partial class MainWindow : Window
         menu.Opening += (_, _) =>
         {
             bool hasImage = PathOf(isMain) is not null;
-            foreach (var item in items)
-            {
-                item.IsEnabled = hasImage;
-            }
+            foreach (var item in items) item.IsEnabled = hasImage;
         };
         return menu;
     }
@@ -836,7 +924,7 @@ public partial class MainWindow : Window
         try
         {
             ms = new MemoryStream();
-            image.Bitmap.Save(ms); // Avalonia Save 固定编码为 PNG
+            image.Bitmap.Save(ms);
             ms.Position = 0;
             var data = new DataObject();
             data.Set("PNG", ms);
@@ -847,15 +935,12 @@ public partial class MainWindow : Window
                 return;
             }
             await clipboard.SetDataObjectAsync(data);
-            // Windows 剪贴板为延迟渲染：流必须保持打开直到粘贴完成，
-            // 否则粘贴时读到的已是关闭的流（原实现 using 立即释放 → 复制图像失效）
             _clipboardPng?.Dispose();
             _clipboardPng = ms;
             ShowToast("已复制图像");
         }
         catch
         {
-            // 失败只释放本次新建的流，上一次成功的复制仍可用
             if (!ReferenceEquals(_clipboardPng, ms)) ms?.Dispose();
             ShowToast("复制图像失败（剪贴板不支持）");
         }
@@ -902,20 +987,97 @@ public partial class MainWindow : Window
         try
         {
             await using var stream = await file.OpenWriteAsync();
-            // Avalonia Bitmap.Save 只支持 PNG；JPEG 走 SkiaSharp 编码（质量 92）
             using var skImage = SkiaSharp.SKImage.FromBitmap(image.Source);
             var encoded = skImage.Encode(
                 jpeg ? SkiaSharp.SKEncodedImageFormat.Jpeg : SkiaSharp.SKEncodedImageFormat.Png,
                 92);
-            using (encoded)
-            {
-                encoded.SaveTo(stream);
-            }
+            using (encoded) { encoded.SaveTo(stream); }
             ShowToast("已保存 " + file.Name);
         }
-        catch
+        catch (Exception ex)
         {
+            LogError("SaveCurrentAsAsync failed: " + ex.Message);
             ShowToast("保存失败：" + file.Name);
+        }
+    }
+
+    /// <summary>删除当前图片到回收站，并从列表同步移除。</summary>
+    private async Task DeleteCurrentFileAsync()
+    {
+        if (_current is null || string.IsNullOrEmpty(_current.Path)) return;
+        var path = _current.Path;
+        bool canceled = false;
+        try
+        {
+            await Task.Run(() =>
+            {
+                int result = NativeMethods.DeleteFileToRecycleBin(path, confirm: true);
+                if (result == 2) canceled = true; // DE_RESABORTED / 用户取消
+                if (result != 0 && result != 2)
+                    throw new InvalidOperationException("SHFileOperation failed: " + result);
+            });
+            if (canceled) return;
+
+            _images.RemoveAt(_currentIndex);
+            Strip.SetItems(_images, null, scrollIntoView: false);
+            RebuildComparePicker();
+
+            _imageStore.Get(path)?.Dispose();
+            if (_images.Count > 0)
+            {
+                int next = Math.Min(_currentIndex, _images.Count - 1);
+                SelectIndex(next);
+            }
+            else
+            {
+                ShowEmpty();
+            }
+            ShowToast("已移到回收站：" + Path.GetFileName(path));
+        }
+        catch (Exception ex)
+        {
+            LogError("DeleteCurrentFileAsync failed: " + ex.Message);
+            ShowToast("删除失败：" + ex.Message);
+        }
+    }
+
+    /// <summary>Windows Shell API：SHFileOperation 删除到回收站。零 NuGet 依赖。</summary>
+    internal static class NativeMethods
+    {
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential, CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+        private struct SHFILEOPSTRUCTW
+        {
+            public IntPtr hwnd;
+            public int wFunc;
+            [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPWStr)]
+            public string pFrom;
+            public IntPtr pTo;
+            public int fFlags;
+            public int fAnyOps;
+            public IntPtr hNameMappings;
+            [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPWStr)]
+            public string lpszProgressTitle;
+        }
+
+        private const int FO_DELETE = 3;
+        private const int FOF_ALLOWUNDO = 0x40;
+        private const int FOF_NOCONFIRMATION = 0x10;   // 跳过确认框（我们自己做）
+        private const int FOF_SILENT = 0x0004;
+
+        [System.Runtime.InteropServices.DllImport("shell32.dll", EntryPoint = "SHFileOperationW", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+        private static extern int SHFileOperation(ref SHFILEOPSTRUCTW FileOp);
+
+        /// <returns>0=成功；2=用户取消（FOF_NOCONFIRMATION 下不会出现）；其他=错误码</returns>
+        public static int DeleteFileToRecycleBin(string path, bool confirm)
+        {
+            var op = new SHFILEOPSTRUCTW
+            {
+                hwnd = IntPtr.Zero,
+                wFunc = FO_DELETE,
+                pFrom = path + "\0\0", // 双 null 结尾
+                fFlags = FOF_ALLOWUNDO | (confirm ? 0 : FOF_NOCONFIRMATION) | FOF_SILENT,
+            };
+            return SHFileOperation(ref op);
         }
     }
 
@@ -925,11 +1087,30 @@ public partial class MainWindow : Window
     {
         try
         {
+            SaveWindowBounds();
             SettingsStore.Save(_settings);
         }
         catch
         {
             // 持久化失败不影响使用
         }
+    }
+
+    // MARK: 日志
+
+    private static readonly string LogPath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+        "PhotoLensWin", "error.log");
+
+    private static void LogError(string message)
+    {
+        try
+        {
+            var dir = Path.GetDirectoryName(LogPath);
+            if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+            File.AppendAllText(LogPath,
+                $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {message}{Environment.NewLine}");
+        }
+        catch { /* 日志写不了就算了 */ }
     }
 }
