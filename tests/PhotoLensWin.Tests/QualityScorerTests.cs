@@ -122,7 +122,7 @@ public class QualityScorerTests
     public void Lines_ProvidesSummaryText()
     {
         var report = QualityScorer.AssessQuality(320, 240, Solid(320, 240, 128, 128, 128));
-        Assert.Equal(2, report.Lines.Length);
+        Assert.Equal(3, report.Lines.Length);
         Assert.StartsWith("画质评分", report.Lines[0]);
         Assert.Contains("分辨率", report.Lines[1]);
     }

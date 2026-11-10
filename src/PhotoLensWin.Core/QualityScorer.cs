@@ -19,8 +19,9 @@ public sealed record QualityReport(double Score, QualityItem[] Items)
             string parts = string.Join(" · ", Items.Select(i => $"{i.Name} {i.Score:F1}"));
             return new[]
             {
-                $"画质评分 {Score:F1} / 10（按规则计算）",
+                $"画质评分 {Score:F1} / 10（基于像素统计）",
                 "  " + parts,
+                "  注：非 AI 评分，锐度/曝光/对比/色彩加权",
             };
         }
     }

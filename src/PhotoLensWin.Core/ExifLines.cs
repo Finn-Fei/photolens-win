@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using MetadataExtractor;
 using MetadataExtractor.Formats.Exif;
 using MexDirectory = MetadataExtractor.Directory;
@@ -11,6 +12,7 @@ namespace PhotoLensWin.Core;
 /// <summary>
 /// 图片元数据展示行：像素尺寸、文件大小、机身、拍摄参数、拍摄时间、修改时间、路径。
 /// 从 Mac 版 metadataLines 移植，EXIF 解码改用 MetadataExtractor（纯 .NET）。
+/// 支持传入预缓存的 directories 避免重复读盘。
 /// </summary>
 public static class ExifLines
 {
@@ -22,7 +24,17 @@ public static class ExifLines
             : $"{Math.Max(1, Math.Round(bytes / 1024.0)):F0} KB";
     }
 
+    /// <summary>便捷入口：内部自己读 metadata（首次载入或无缓存时用）。</summary>
     public static string[] Build(string path, int pixelWidth, int pixelHeight, DateTime modifiedUtc)
+        => Build(path, pixelWidth, pixelHeight, modifiedUtc, null);
+
+    /// <summary>主入口：可传入预缓存的 directories，避免重复磁盘读取。</summary>
+    public static string[] Build(
+        string path,
+        int pixelWidth,
+        int pixelHeight,
+        DateTime modifiedUtc,
+        IReadOnlyList<MexDirectory>? cachedDirectories)
     {
         var lines = new List<string>
         {
@@ -36,7 +48,7 @@ public static class ExifLines
 
         try
         {
-            var directories = ImageMetadataReader.ReadMetadata(path);
+            var directories = cachedDirectories ?? ImageMetadataReader.ReadMetadata(path);
             var ifd0 = directories.OfType<ExifIfd0Directory>().FirstOrDefault();
             var subIfd = directories.OfType<ExifSubIfdDirectory>().FirstOrDefault();
 
@@ -76,6 +88,13 @@ public static class ExifLines
         lines.Add("修改于 " + modifiedUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm"));
         lines.Add("路径 " + AbbreviateHome(path));
         return lines.ToArray();
+    }
+
+    /// <summary>读取文件的全部 metadata directories（ImageStore 解码时缓存用）。</summary>
+    public static IReadOnlyList<MexDirectory>? ReadDirectories(string path)
+    {
+        try { return ImageMetadataReader.ReadMetadata(path); }
+        catch { return null; }
     }
 
     private static string? Str(MexDirectory? dir, int tag)
