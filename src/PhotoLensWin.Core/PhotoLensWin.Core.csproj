@@ -1,10 +1,11 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net7.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
+    <TargetFramework>net9.0</TargetFramework>
+    <Version>1.1.0</Version>
     <Nullable>enable</Nullable>
-    <SuppressTfmSupportBuildWarnings>true</SuppressTfmSupportBuildWarnings>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>12</LangVersion>
   </PropertyGroup>
 
   <ItemGroup>
