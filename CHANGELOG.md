@@ -4,6 +4,41 @@
 
 ---
 
+## PhotoLensWin-1.1.1 — 2026-11-12
+
+用户反馈补丁：第二轮对齐 Mac 原版修复（7 项）+ GridSplitter 约束 + ScrollBar 优化。
+
+### Bug 修复（对齐 Mac 原版）
+- **FitPadding 24→6**（Mac 原版 `Core.swift` 6pt）：消除主图窗口和胶片缩略图的大片黑边
+- **GridSplitter 拖动 Filmstrip 不跟随**：去掉 Filmstrip 硬编码 `Width="232"` 和 FilmItem 样式固定 `Width="208"`，让 Grid 列宽驱动尺寸
+- **信息面板占大面板**：改为浮动右上角小面板（`VerticalAlignment=Top` + `Margin=0,18,18,0`），宽度 290→260
+- **适合窗口按钮无激活态**：`BtnFit.IsFitted=true` 时自动加 `toggleOn` 高亮类
+- **拖入主图修改原列表**：`HandleMainDrop` 区分来源 — 列表里有的 `SelectIndex`，外部拖入只 `LoadAndDropInAsync` 展示（不碰 `_images` 和 Filmstrip）
+- **滚轮缩放需按 Ctrl**：改为直接滚轮缩放（factor 1.15），拖动平移保留
+
+### 交互改进
+- **GridSplitter 调节下限**：列表 MinWidth=120 / MaxWidth=480，主图 MinWidth=200，不被无限缩放
+- **Filmstrip ScrollBar Auto**：有内容才出现，减少两根竖条视觉混乱
+
+### 验证
+- `dotnet build`：**0 警告 0 错误**
+- `dotnet test`：**69 项全部通过**（FitScale_LeavesPadding 预期值随 FitPadding 更新）
+
+### 涉及文件
+```
+修改:
+  src/PhotoLensWin.App/PhotoLensWin.App.csproj      (版本号 1.1.0 → 1.1.1)
+  src/PhotoLensWin.Core/PhotoLensWin.Core.csproj    (版本号 1.1.0 → 1.1.1)
+  src/PhotoLensWin.Core/ViewTransform.cs            (FitPadding 24 → 6)
+  src/PhotoLensWin.App/Views/MainWindow.axaml       (Filmstrip 去硬编码 Width, InfoPanel 改浮动)
+  src/PhotoLensWin.App/Views/MainWindow.axaml.cs    (UpdateFitButtonState, HandleMainDrop, ApplyColumnConstraints)
+  src/PhotoLensWin.App/Views/ImageViewer.cs         (OnWheel 直接缩放)
+  src/PhotoLensWin.App/Views/Filmstrip.cs           (ScrollBarVisibility Auto)
+  tests/PhotoLensWin.Tests/ViewTransformTests.cs    (FitScale_LeavesPadding 预期值更新)
+```
+
+---
+
 ## PhotoLensWin-1.1 — 2026-11-10
 
 首版发布后全量审查 review（从真实用户体验、功能完整性、代码质量三维度提出 22 条改进），本次落地 15 项：
@@ -34,15 +69,6 @@
 - **ThumbnailStore 实现 IDisposable**：释放 `SemaphoreSlim` + 全部缓存位图
 - **错误日志**：`%APPDATA%/PhotoLensWin/error.log`，`MainWindow.LogError()` 统一入口
 - **各项目正式版本号**：csproj 加 `<Version>1.1.0</Version>`，构建产物 dll 自带版本
-
-### 第二轮修复补丁 — 对齐 Mac 原版（2026-11-12）
-首轮发布后真实用户体验反馈 7 项功能问题/缺失，全部对齐 Mac 原版 `Core.swift` / `main.swift` 实现：
-- **FitPadding 24→6**（Mac 原版 6pt）：消除主图窗口和胶片缩略图的大片黑边
-- **GridSplitter 拖动不跟随**：去掉 Filmstrip 硬编码 `Width="232"` 和 FilmItem 样式固定 `Width="208"`，让 Grid 列宽驱动尺寸
-- **信息面板改浮动**：`VerticalAlignment=Top` + `Margin=0,18,18,0`，宽度 290→260，不再占主画面
-- **适合窗口按钮激活态**：`BtnFit.IsFitted=true` 时自动加 `toggleOn` 高亮类
-- **拖入主图不改列表**：`HandleMainDrop` 区分来源 — 列表里有的 `SelectIndex`，外部拖入只 `LoadAndDropInAsync` 展示（不碰 `_images` 和 Filmstrip）
-- **滚轮直接缩放**：去掉 Ctrl 要求，factor 1.15 步进（Mac 原版习惯）；拖动平移保留
 
 ### 未实现 / 延后说明
 - **旋转写回文件**：保持临时旋转只改画面（与 Mac 原版语义一致），需要时可主动触发重编码
