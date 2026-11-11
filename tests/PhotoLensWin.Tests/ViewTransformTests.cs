@@ -18,9 +18,9 @@ public class ViewTransformTests
     [Fact]
     public void FitScale_LeavesPadding_OnBothSides()
     {
-        // 视口 800×600，图片 800×600：可用区 752×552 → 取较小者 552/600
+        // 视口 800×600，图片 800×600：FitPadding=6 → 可用区 788×588 → min(788/800, 588/600)
         var t = Make(800, 600, 800, 600);
-        Assert.Equal(552.0 / 600.0, t.FitScale, precision: 6);
+        Assert.Equal(588.0 / 600.0, t.FitScale, precision: 6);
     }
 
     [Fact]

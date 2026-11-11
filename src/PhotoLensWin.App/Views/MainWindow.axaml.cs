@@ -51,8 +51,19 @@ public partial class MainWindow : Window
         Icon = new WindowIcon(GenerateAppIcon());
         Strip.Store = _thumbs;
         WireControls();
+        ApplyColumnConstraints();
         _toastTimer.Tick += (_, _) => ResetHint();
         _slideshowTimer.Tick += (_, _) => Step(1);
+    }
+
+    /// <summary>设置 Grid 列宽约束：列表 120~480，主图不低于 200</summary>
+    private void ApplyColumnConstraints()
+    {
+        var grid = Strip.Parent as Grid;
+        if (grid is null || grid.ColumnDefinitions.Count < 3) return;
+        grid.ColumnDefinitions[0].MinWidth = 120;
+        grid.ColumnDefinitions[0].MaxWidth = 480;
+        grid.ColumnDefinitions[2].MinWidth = 200;
     }
 
     // MARK: 启动
@@ -780,23 +791,20 @@ public partial class MainWindow : Window
     private void ApplyListVisibility()
     {
         Strip.IsVisible = _showStrip;
+        var grid = Strip.Parent as Grid;
+        if (grid is null) return;
+        var splitter = grid.Children.OfType<GridSplitter>().FirstOrDefault();
+        if (splitter is not null) splitter.IsVisible = _showStrip;
+
         if (_showStrip)
         {
-            // 确保列宽恢复（可能被隐藏时设为 0）
-            var grid = Strip.Parent as Grid;
-            if (grid is not null && grid.ColumnDefinitions.Count >= 3)
-            {
-                grid.ColumnDefinitions[0].Width = new GridLength(232);
-            }
+            grid.ColumnDefinitions = new ColumnDefinitions("232,Auto,1*");
+            ApplyColumnConstraints();
             BtnList.Content = "隐藏列表";
         }
         else
         {
-            var grid = Strip.Parent as Grid;
-            if (grid is not null && grid.ColumnDefinitions.Count >= 3)
-            {
-                grid.ColumnDefinitions[0].Width = new GridLength(0);
-            }
+            grid.ColumnDefinitions = new ColumnDefinitions("0,0,1*");
             BtnList.Content = "显示列表";
         }
     }
