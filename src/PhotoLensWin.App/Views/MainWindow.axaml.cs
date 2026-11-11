@@ -615,7 +615,11 @@ public partial class MainWindow : Window
             MainSplit.ColumnDefinitions = new ColumnDefinitions("1*,Auto,1*");
             BtnCompare.Classes.Add("toggleOn");
 
+            // 自动选下一张（和当前不同的）作为对比
             int candidate = _currentIndex + 1 < _images.Count ? _currentIndex + 1 : 0;
+            // 如果"下一张"刚好是当前图（列表只有一张的极端情况已被上面 Count<2 拦截），但保险起见再判断
+            if (candidate == _currentIndex && _images.Count > 1)
+                candidate = (candidate + 1) % _images.Count;
             SetCompareImage(_images[candidate].FullPath, updatePicker: true);
         }
         else
@@ -636,6 +640,15 @@ public partial class MainWindow : Window
         if (!_compareOn || _rebuildingPicker) return;
         if (ComparePicker.SelectedItem is ImageEntry entry)
         {
+            // 不允许对比和主图相同的图片
+            if (_current is not null && entry.FullPath == _current.Path)
+            {
+                ShowToast("对比图不能和当前主图相同");
+                ComparePicker.SelectedItem = _comparePath is not null
+                    ? _images.FirstOrDefault(i => i.FullPath == _comparePath)
+                    : null;
+                return;
+            }
             SetCompareImage(entry.FullPath, updatePicker: false);
         }
     }
