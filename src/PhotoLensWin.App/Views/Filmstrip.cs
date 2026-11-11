@@ -173,7 +173,7 @@ public class Filmstrip : Border
         private static readonly IBrush IdleBorderBrush = new SolidColorBrush(Color.Parse("#2A2D30"));
         private static readonly IBrush SelectedBorderBrush = new SolidColorBrush(Color.Parse("#5C99FF"));
 
-        private readonly Image _thumb = new() { Stretch = Stretch.UniformToFill };
+        private readonly Image _thumb = new() { Stretch = Stretch.Uniform, HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center, VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center };
         private readonly ThumbnailStore _thumbs;
         private readonly bool _highPriority;
         private bool _attached;
@@ -187,9 +187,8 @@ public class Filmstrip : Border
             // 不设固定 Width，让 Avalonia 自动填充
             Height = 92;
             CornerRadius = new CornerRadius(8);
-            ClipToBounds = true;
             Margin = new Thickness(0, 0, 0, 10);
-            Padding = new Thickness(2);
+            Padding = new Thickness(0);
             SetSelected(false);
             Child = _thumb;
         }
