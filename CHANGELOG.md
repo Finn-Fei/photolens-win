@@ -35,6 +35,15 @@
 - **错误日志**：`%APPDATA%/PhotoLensWin/error.log`，`MainWindow.LogError()` 统一入口
 - **各项目正式版本号**：csproj 加 `<Version>1.1.0</Version>`，构建产物 dll 自带版本
 
+### 第二轮修复补丁 — 对齐 Mac 原版（2026-11-12）
+首轮发布后真实用户体验反馈 7 项功能问题/缺失，全部对齐 Mac 原版 `Core.swift` / `main.swift` 实现：
+- **FitPadding 24→6**（Mac 原版 6pt）：消除主图窗口和胶片缩略图的大片黑边
+- **GridSplitter 拖动不跟随**：去掉 Filmstrip 硬编码 `Width="232"` 和 FilmItem 样式固定 `Width="208"`，让 Grid 列宽驱动尺寸
+- **信息面板改浮动**：`VerticalAlignment=Top` + `Margin=0,18,18,0`，宽度 290→260，不再占主画面
+- **适合窗口按钮激活态**：`BtnFit.IsFitted=true` 时自动加 `toggleOn` 高亮类
+- **拖入主图不改列表**：`HandleMainDrop` 区分来源 — 列表里有的 `SelectIndex`，外部拖入只 `LoadAndDropInAsync` 展示（不碰 `_images` 和 Filmstrip）
+- **滚轮直接缩放**：去掉 Ctrl 要求，factor 1.15 步进（Mac 原版习惯）；拖动平移保留
+
 ### 未实现 / 延后说明
 - **旋转写回文件**：保持临时旋转只改画面（与 Mac 原版语义一致），需要时可主动触发重编码
 - **GIF/WebP 动画帧**：SkiaSharp `SKCodec` 支持但 Avalonia 显示端每帧重建 Bitmap 成本高，延后到 v1.2 做选项开关
