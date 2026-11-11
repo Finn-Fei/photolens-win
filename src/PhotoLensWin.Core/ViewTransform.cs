@@ -9,8 +9,8 @@ public struct ViewTransform
 {
     public const double MinScale = 0.02;
     public const double MaxScale = 20;
-    /// <summary>适合窗口时四周留白</summary>
-    public const double FitPadding = 24;
+    /// <summary>适合窗口时四周留白（对齐 Mac 原版 6pt）</summary>
+    public const double FitPadding = 6;
 
     public double ViewWidth;
     public double ViewHeight;

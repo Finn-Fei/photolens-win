@@ -209,9 +209,12 @@ public partial class MainWindow : Window
         BtnPrev.Click += (_, _) => Step(-1);
         BtnNext.Click += (_, _) => Step(1);
 
-        MainViewer.OnDropFiles += paths => LoadFromPaths(paths);
+        MainViewer.OnDropFiles += HandleMainDrop;
         CompareViewer.OnDropFiles += HandleCompareDrop;
-        MainViewer.ScaleChanged += scale => UpdateZoomLabel(scale, MainViewer.IsFitted);
+        MainViewer.ScaleChanged += scale => {
+            UpdateZoomLabel(scale, MainViewer.IsFitted);
+            UpdateFitButtonState();
+        };
         MainViewer.ArrowsChanged += (prev, next) =>
         {
             BtnPrev.IsVisible = prev && !_compareOn;
@@ -675,6 +678,40 @@ public partial class MainWindow : Window
         ShowToast("已放入对比栏（未加入列表）");
     }
 
+    /// <summary>拖入主画布：列表里有的就选中，没有的只展示不改列表（对齐 Mac 原版行为）。</summary>
+    private void HandleMainDrop(string[] paths)
+    {
+        if (paths.Length == 0) return;
+        var files = ImageCatalog.CollectFromPaths(paths);
+        if (files.Count == 0) { ShowToast("没有找到可显示的图片"); return; }
+
+        string targetPath = files[0].FullPath;
+        int idx = _images.FindIndex(i => i.FullPath == targetPath);
+        if (idx >= 0)
+        {
+            SelectIndex(idx);
+        }
+        else
+        {
+            _ = LoadAndDropInAsync(targetPath);
+        }
+    }
+
+    private async Task LoadAndDropInAsync(string path)
+    {
+        var loaded = await ImageStore.LoadAsync(path);
+        if (loaded is null)
+        {
+            ShowToast("无法解码 " + Path.GetFileName(path));
+            return;
+        }
+        _imageStore.Put(loaded);
+        MainViewer.Present(loaded);
+        NameLabel.Text = Path.GetFileName(path);
+        IndexLabel.Text = "拖入预览";
+        if (_infoOn) RefreshInfo();
+    }
+
     private void RebuildComparePicker()
     {
         _rebuildingPicker = true;
@@ -786,6 +823,15 @@ public partial class MainWindow : Window
         ZoomLabel.Text = scale <= 0
             ? ""
             : (fitted ? $"适合窗口 {Math.Round(scale * 100)}%" : $"{Math.Round(scale * 100)}%");
+    }
+
+    /// <summary>适合窗口按钮激活态：IsFitted=true 时高亮</summary>
+    private void UpdateFitButtonState()
+    {
+        if (MainViewer.IsFitted)
+            BtnFit.Classes.Add("toggleOn");
+        else
+            BtnFit.Classes.Remove("toggleOn");
     }
 
     // MARK: 键盘

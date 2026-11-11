@@ -302,22 +302,12 @@ public class ImageViewer : Control
     {
         if (_current is null) return;
         var pos = e.GetPosition(this);
-        if (e.KeyModifiers.HasFlag(KeyModifiers.Control))
-        {
-            double factor = e.Delta.Y > 0 ? 1.25 : 0.8;
-            SyncTransformSize();
-            _transform.ZoomBy(factor, pos.X, pos.Y);
-            _isFitted = false;
-            ApplyTransform();
-            ScaleChanged?.Invoke(_transform.Scale);
-        }
-        else
-        {
-            double dx = e.KeyModifiers.HasFlag(KeyModifiers.Shift) ? e.Delta.Y * 24 : 0;
-            double dy = e.KeyModifiers.HasFlag(KeyModifiers.Shift) ? 0 : e.Delta.Y * 24;
-            _transform.Pan(dx, dy);
-            ApplyTransform();
-        }
+        double factor = e.Delta.Y > 0 ? 1.15 : 1 / 1.15;
+        SyncTransformSize();
+        _transform.ZoomBy(factor, pos.X, pos.Y);
+        _isFitted = false;
+        ApplyTransform();
+        ScaleChanged?.Invoke(_transform.Scale);
         e.Handled = true;
     }
 

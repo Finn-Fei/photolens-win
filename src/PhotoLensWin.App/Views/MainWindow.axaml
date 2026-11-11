@@ -34,7 +34,6 @@
       <Setter Property="Opacity" Value="0.95" />
     </Style>
     <Style Selector="Border.filmItem">
-      <Setter Property="Width" Value="208" />
       <Setter Property="Height" Value="92" />
       <Setter Property="CornerRadius" Value="8" />
       <Setter Property="Margin" Value="0,0,0,10" />
@@ -76,11 +75,11 @@
       <Setter Property="Foreground" Value="#E8A33D" />
     </Style>
     <Style Selector="Border.infoPanel">
-      <Setter Property="Width" Value="290" />
+      <Setter Property="Width" Value="260" />
       <Setter Property="Background" Value="#F016181B" />
       <Setter Property="CornerRadius" Value="8" />
-      <Setter Property="Margin" Value="0,12,12,12" />
-      <Setter Property="Padding" Value="14" />
+      <Setter Property="Margin" Value="0,18,18,0" />
+      <Setter Property="Padding" Value="10,12" />
     </Style>
     <Style Selector="TextBlock.infoText">
       <Setter Property="FontSize" Value="12.5" />
@@ -111,7 +110,7 @@
     </StackPanel>
 
     <Grid Grid.Row="2" ColumnDefinitions="232,Auto,1*">
-      <local:Filmstrip x:Name="Strip" Width="232" MinWidth="120" MaxWidth="480"
+      <local:Filmstrip x:Name="Strip" MinWidth="120" MaxWidth="480"
                        Grid.Column="0" VerticalAlignment="Stretch" />
       <GridSplitter Grid.Column="1" Width="5" Background="#24282C" HorizontalAlignment="Stretch" />
 
@@ -124,7 +123,7 @@
           <Button Classes="glassArrow" x:Name="BtnNext" Content="›" IsVisible="False"
                   HorizontalAlignment="Right" Margin="0,0,14,0" />
           <Border Classes="infoPanel" x:Name="InfoPanel" IsVisible="False"
-                  HorizontalAlignment="Right" VerticalAlignment="Stretch">
+                  HorizontalAlignment="Right" VerticalAlignment="Top">
             <ScrollViewer>
               <TextBlock Classes="infoText" x:Name="InfoText" />
             </ScrollViewer>
