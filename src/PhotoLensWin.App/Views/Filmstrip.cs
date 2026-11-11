@@ -25,7 +25,7 @@ public class Filmstrip : Border
 
     private readonly ScrollViewer _scroller = new()
     {
-        VerticalScrollBarVisibility = ScrollBarVisibility.Visible,
+        VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
         HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
         Padding = new Thickness(10),
     };
