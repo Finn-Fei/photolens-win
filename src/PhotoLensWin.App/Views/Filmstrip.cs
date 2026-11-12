@@ -183,9 +183,10 @@ public class Filmstrip : Border
             Entry = entry;
             _thumbs = thumbs;
             _highPriority = highPriority;
-            // 宽度自适应 ScrollViewer 内容区（232 - Padding 10*2 - ScrollBar ~18 ≈ 194）
-            // 不设固定 Width，让 Avalonia 自动填充
-            Height = 92;
+            // 固定宽度 + 自适应高度：竖图自然变高，横图自然变扁，完整显示无黑边
+            Width = 200;
+            MinHeight = 60;
+            MaxHeight = 180;
             CornerRadius = new CornerRadius(8);
             Margin = new Thickness(0, 0, 0, 10);
             Padding = new Thickness(0);

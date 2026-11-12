@@ -3,6 +3,7 @@ using System.IO;
 using System.Linq;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
@@ -21,9 +22,9 @@ public class ImageViewer : Control
 {
     private const double LoupeDiameter = 150;
 
-    // 三层结构：_transformLayer（缩放/平移/旋转）→ _layoutLayer（Image 按 Uniform 自动布局）→ Image
+    // 三层结构：_transformLayer（Canvas 容器，用 SetLeft/SetTop 定位）→ _layoutLayer（Image 按 Uniform 自动居中）→ Image
     private readonly Grid _root = new();
-    private readonly Grid _transformLayer = new();  // 缩放/平移/旋转在这里
+    private readonly Canvas _transformLayer = new();  // 用 Canvas 才能 SetLeft/SetTop 定位子元素
     private readonly Border _layoutLayer = new();    // Image 在这里按 Uniform 自动居中
     private readonly Image _image = new()
     {
@@ -219,33 +220,32 @@ public class ImageViewer : Control
 
     /// <summary>
     /// 变换链：Image（Uniform 自动居中显示 DisplayWidth×DisplayHeight）
-    /// → _transformLayer 的 RenderTransform = 旋转(EXIF+用户) + 缩放 + 平移。
-    /// _layoutLayer 的 ArrangeRect 由 ViewTransform.ImageRect 计算得出
-    /// （居中于 Viewport，按 Scale 缩放后的尺寸），_transformLayer.RenderTransform
-    /// 只做旋转矩阵乘 Scale（偏移已在 ArrangeRect 里）。
+    /// → _layoutLayer 用 Canvas.SetLeft/SetTop 定位到居中+偏移位置，Width/Height 设为 scaled 尺寸
+    /// → _transformLayer.RenderTransform 做 EXIF + 用户旋转。
     /// 
-    /// 注意：Layout 层负责"图片在哪 + 图片多大"，Transform 层只负责"旋转"。
-    /// 这样 Stretch.Uniform + HAlign/VAlign=Center 保证 Image 始终正确居中，
-    /// 不会被 RenderTransform 挤到角落。
+    /// 关键：Canvas 是唯一能对子元素用 SetLeft/SetTop 精确定位的容器。
+    /// Grid/Panel 默认拉伸填满，layoutX/layoutY 偏移会被忽略，Pan 永远无效。
     /// </summary>
     private void ApplyTransform()
     {
         SyncTransformSize();
         var (m, dw, dh) = EffectiveMatrix();
 
-        // 1. Layout 层：计算显示尺寸和位置（旋转后宽高 × Scale，居中于 Viewport）
         double scaledW = dw * _transform.Scale;
         double scaledH = dh * _transform.Scale;
         double layoutX = _transform.ViewWidth / 2 - scaledW / 2 + _transform.OffsetX;
         double layoutY = _transform.ViewHeight / 2 - scaledH / 2 + _transform.OffsetY;
+
+        // 1. 位置 + 尺寸（Canvas 定位才能真正生效）
+        Canvas.SetLeft(_layoutLayer, layoutX);
+        Canvas.SetTop(_layoutLayer, layoutY);
         _layoutLayer.Width = Math.Max(0, scaledW);
         _layoutLayer.Height = Math.Max(0, scaledH);
-        _layoutLayer.RenderTransform = null; // 旋转在 transformLayer 上
 
-        // 2. Transform 层：只做旋转（EXIF + 用户），不做缩放/平移
+        // 2. 旋转：EXIF + 用户旋转叠加在 layoutLayer 上
         var rotMatrix = new Matrix(m.A, m.B, m.C, m.D, m.E, m.F);
-        _transformLayer.RenderTransformOrigin = new RelativePoint(0.5, 0.5, RelativeUnit.Relative);
-        _transformLayer.RenderTransform = new MatrixTransform(rotMatrix);
+        _layoutLayer.RenderTransformOrigin = new RelativePoint(0.5, 0.5, RelativeUnit.Relative);
+        _layoutLayer.RenderTransform = new MatrixTransform(rotMatrix);
     }
 
     // MARK: 交互

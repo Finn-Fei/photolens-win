@@ -612,14 +612,12 @@ public partial class MainWindow : Window
             _compareOn = true;
             CompareArea.IsVisible = true;
             CompareDivider.IsVisible = true;
+            ComparePicker.IsVisible = true;
             MainSplit.ColumnDefinitions = new ColumnDefinitions("1*,Auto,1*");
             BtnCompare.Classes.Add("toggleOn");
 
-            // 自动选下一张（和当前不同的）作为对比
+            // 自动选下一张作为对比（同图也允许，用户可能想对比不同缩放级别）
             int candidate = _currentIndex + 1 < _images.Count ? _currentIndex + 1 : 0;
-            // 如果"下一张"刚好是当前图（列表只有一张的极端情况已被上面 Count<2 拦截），但保险起见再判断
-            if (candidate == _currentIndex && _images.Count > 1)
-                candidate = (candidate + 1) % _images.Count;
             SetCompareImage(_images[candidate].FullPath, updatePicker: true);
         }
         else
@@ -629,6 +627,7 @@ public partial class MainWindow : Window
             CompareViewer.ShowMessage("");
             CompareArea.IsVisible = false;
             CompareDivider.IsVisible = false;
+            ComparePicker.IsVisible = false;
             MainSplit.ColumnDefinitions = new ColumnDefinitions("1*,0,0");
             BtnCompare.Classes.Remove("toggleOn");
         }
@@ -640,15 +639,6 @@ public partial class MainWindow : Window
         if (!_compareOn || _rebuildingPicker) return;
         if (ComparePicker.SelectedItem is ImageEntry entry)
         {
-            // 不允许对比和主图相同的图片
-            if (_current is not null && entry.FullPath == _current.Path)
-            {
-                ShowToast("对比图不能和当前主图相同");
-                ComparePicker.SelectedItem = _comparePath is not null
-                    ? _images.FirstOrDefault(i => i.FullPath == _comparePath)
-                    : null;
-                return;
-            }
             SetCompareImage(entry.FullPath, updatePicker: false);
         }
     }
@@ -846,13 +836,19 @@ public partial class MainWindow : Window
             : (fitted ? $"适合窗口 {Math.Round(scale * 100)}%" : $"{Math.Round(scale * 100)}%");
     }
 
-    /// <summary>适合窗口按钮激活态：IsFitted=true 时高亮</summary>
+    /// <summary>适合窗口/实际大小按钮激活态：IsFitted 决定哪个高亮</summary>
     private void UpdateFitButtonState()
     {
         if (MainViewer.IsFitted)
+        {
             BtnFit.Classes.Add("toggleOn");
+            BtnActual.Classes.Remove("toggleOn");
+        }
         else
+        {
             BtnFit.Classes.Remove("toggleOn");
+            BtnActual.Classes.Add("toggleOn");
+        }
     }
 
     // MARK: 键盘

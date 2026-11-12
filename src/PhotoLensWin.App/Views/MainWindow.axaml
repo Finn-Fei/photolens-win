@@ -34,13 +34,13 @@
       <Setter Property="Opacity" Value="0.95" />
     </Style>
     <Style Selector="Border.filmItem">
-      <Setter Property="Height" Value="92" />
+      <Setter Property="Width" Value="200" />
       <Setter Property="CornerRadius" Value="8" />
       <Setter Property="Margin" Value="0,0,0,10" />
       <Setter Property="Background" Value="#16181A" />
       <Setter Property="BorderBrush" Value="#2A2D30" />
       <Setter Property="BorderThickness" Value="1" />
-      <Setter Property="Padding" Value="6" />
+      <Setter Property="Padding" Value="0" />
     </Style>
     <Style Selector="Border.filmItem.selected">
       <Setter Property="BorderBrush" Value="#5C99FF" />
@@ -75,11 +75,12 @@
       <Setter Property="Foreground" Value="#E8A33D" />
     </Style>
     <Style Selector="Border.infoPanel">
-      <Setter Property="Width" Value="260" />
-      <Setter Property="Background" Value="#F016181B" />
+      <Setter Property="Width" Value="182" />
+      <Setter Property="Background" Value="#C016181B" />
       <Setter Property="CornerRadius" Value="8" />
       <Setter Property="Margin" Value="0,18,18,0" />
-      <Setter Property="Padding" Value="10,12" />
+      <Setter Property="Padding" Value="8,10" />
+      <Setter Property="Opacity" Value="0.88" />
     </Style>
     <Style Selector="TextBlock.infoText">
       <Setter Property="FontSize" Value="12.5" />
@@ -101,6 +102,8 @@
       <Button Classes="tool" x:Name="BtnOpenImages" Content="打开图片" ToolTip.Tip="Ctrl+Shift+O 打开多张图片" />
       <Button Classes="tool" x:Name="BtnSort" Content="排序 ▾" ToolTip.Tip="切换排序方式" />
       <Button Classes="tool" x:Name="BtnCompare" Content="对比" ToolTip.Tip="左右分栏对比两张图片" />
+      <ComboBox x:Name="ComparePicker" MinWidth="140" MaxWidth="200" IsVisible="False"
+                FontSize="12" VerticalAlignment="Center" />
       <Button Classes="tool" x:Name="BtnInfo" Content="图片信息" ToolTip.Tip="I 显示/隐藏 EXIF 信息面板" />
       <Button Classes="tool" x:Name="BtnList" Content="隐藏列表" ToolTip.Tip="L 显示/隐藏胶片栏" />
       <Button Classes="tool" x:Name="BtnSlideshow" Content="幻灯片" ToolTip.Tip="开始/停止自动播放" />
@@ -132,14 +135,8 @@
 
         <!-- 对比区（进入对比模式时展开） -->
         <Border Grid.Column="1" Classes="divider" x:Name="CompareDivider" IsVisible="False" />
-        <Grid Grid.Column="2" x:Name="CompareArea" IsVisible="False"
-              RowDefinitions="Auto,1*">
-          <Grid Grid.Row="0" ColumnDefinitions="Auto,1*" Margin="10,8,10,4">
-            <TextBlock Grid.Column="0" Classes="bar" Margin="0,0,8,0" VerticalAlignment="Center" Text="对比：" />
-            <ComboBox Grid.Column="1" x:Name="ComparePicker" MinWidth="170"
-                      HorizontalAlignment="Stretch" FontSize="12" />
-          </Grid>
-          <local:ImageViewer Grid.Row="1" x:Name="CompareViewer" Margin="0,0,0,0" />
+        <Grid Grid.Column="2" x:Name="CompareArea" IsVisible="False">
+          <local:ImageViewer x:Name="CompareViewer" Margin="0,0,0,0" />
         </Grid>
       </Grid>
     </Grid>

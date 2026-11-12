@@ -5,7 +5,7 @@ obj/
 .vscode/
 .idea/
 TestResults/
-publish/
+publish*/
 dist/
 *.binlog
 .DS_Store
