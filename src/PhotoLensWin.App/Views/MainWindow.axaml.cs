@@ -645,35 +645,49 @@ public partial class MainWindow : Window
 
     private void SetCompareImage(string path, bool updatePicker)
     {
-        _comparePath = path;
-        if (updatePicker)
+        try
         {
-            int index = _images.FindIndex(i => i.FullPath == path);
-            ComparePicker.SelectedIndex = index;
+            _comparePath = path;
+            if (updatePicker)
+            {
+                int index = _images.FindIndex(i => i.FullPath == path);
+                ComparePicker.SelectedIndex = index;
+            }
+            _ = PresentCompareAsync(path);
         }
-        _ = PresentCompareAsync(path);
+        catch (Exception ex)
+        {
+            ShowToast($"对比图设置失败：{ex.Message}");
+        }
     }
 
     private async Task PresentCompareAsync(string path)
     {
-        var cached = _imageStore.Get(path);
-        if (cached is null)
+        try
         {
-            cached = await ImageStore.LoadAsync(path);
+            var cached = _imageStore.Get(path);
             if (cached is null)
             {
-                if (IsCurrentCompare(path))
+                cached = await ImageStore.LoadAsync(path);
+                if (cached is null)
                 {
-                    _comparePath = null;
-                    ComparePicker.SelectedIndex = -1;
-                    CompareViewer.ShowMessage("这张图片无法解码：" + Path.GetFileName(path));
+                    if (IsCurrentCompare(path))
+                    {
+                        _comparePath = null;
+                        ComparePicker.SelectedIndex = -1;
+                        CompareViewer.ShowMessage("这张图片无法解码：" + Path.GetFileName(path));
+                    }
+                    return;
                 }
-                return;
+                _imageStore.Put(cached);
             }
-            _imageStore.Put(cached);
+            if (!IsCurrentCompare(path)) return;
+            CompareViewer.Present(cached);
         }
-        if (!IsCurrentCompare(path)) return;
-        CompareViewer.Present(cached);
+        catch (Exception ex)
+        {
+            ShowToast($"对比展示失败：{ex.Message}");
+        }
     }
 
     private bool IsCurrentCompare(string path) => _compareOn && _comparePath == path;
@@ -681,15 +695,22 @@ public partial class MainWindow : Window
     private void HandleCompareDrop(string[] paths)
     {
         if (!_compareOn) return;
-        var files = ImageCatalog.CollectFromPaths(paths);
-        if (files.Count == 0)
+        try
         {
-            ShowToast("没有找到可对比的图片");
-            return;
+            if (paths.Length == 0) { ShowToast("未获取到拖入的路径"); return; }
+            var files = ImageCatalog.CollectFromPaths(paths);
+            if (files.Count == 0)
+            {
+                ShowToast("没有找到可对比的图片");
+                return;
+            }
+            SetCompareImage(files[0].FullPath, updatePicker: false);
+            ShowToast("已放入对比栏");
         }
-        SetCompareImage(files[0].FullPath, updatePicker: false);
-        ComparePicker.SelectedIndex = -1;
-        ShowToast("已放入对比栏（未加入列表）");
+        catch (Exception ex)
+        {
+            ShowToast($"拖入对比视图失败：{ex.Message}");
+        }
     }
 
     /// <summary>拖入主画布：列表里有的就选中，没有的只展示不改列表（对齐 Mac 原版行为）。</summary>

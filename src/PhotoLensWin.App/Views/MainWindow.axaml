@@ -21,15 +21,22 @@
       <Setter Property="Background" Value="#2E5C99" />
     </Style>
     <Style Selector="Button.glassArrow">
-      <Setter Property="Width" Value="48" />
-      <Setter Property="Height" Value="64" />
-      <Setter Property="CornerRadius" Value="10" />
-      <Setter Property="FontSize" Value="28" />
+      <Setter Property="Width" Value="44" />
+      <Setter Property="Height" Value="44" />
+      <Setter Property="CornerRadius" Value="22" />
+      <Setter Property="FontSize" Value="26" />
+      <Setter Property="FontWeight" Value="Bold" />
       <Setter Property="Foreground" Value="White" />
-      <Setter Property="Opacity" Value="0.75" />
+      <Setter Property="Background" Value="#66000000" />
+      <Setter Property="Opacity" Value="1" />
       <Setter Property="VerticalAlignment" Value="Center" />
-      <Setter Property="Background" Value="#8816181B" />
       <Setter Property="Padding" Value="0" />
+    </Style>
+    <Style Selector="Button.glassArrow:pointerover">
+      <Setter Property="Background" Value="#AA2E5C99" />
+    </Style>
+    <Style Selector="Button.glassArrow:pressed">
+      <Setter Property="Background" Value="#CC2E5C99" />
     </Style>
     <Style Selector="Button.glassArrow:pointerover /template/ ContentPresenter">
       <Setter Property="Background" Value="#CC2A2D31" />
@@ -123,9 +130,9 @@
         <!-- 主画布 -->
         <Panel Grid.Column="0">
           <local:ImageViewer x:Name="MainViewer" />
-          <Button Classes="glassArrow" x:Name="BtnPrev" Content="‹" IsVisible="False"
+          <Button Classes="glassArrow" x:Name="BtnPrev" Content="‹"
                   HorizontalAlignment="Left" VerticalAlignment="Center" Margin="14,0,0,0" />
-          <Button Classes="glassArrow" x:Name="BtnNext" Content="›" IsVisible="False"
+          <Button Classes="glassArrow" x:Name="BtnNext" Content="›"
                   HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,14,0" />
           <Border Classes="infoPanel" x:Name="InfoPanel" IsVisible="False"
                   HorizontalAlignment="Right" VerticalAlignment="Top">
