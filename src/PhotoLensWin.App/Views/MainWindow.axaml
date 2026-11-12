@@ -101,12 +101,29 @@
       <Setter Property="Width" Value="1" />
       <Setter Property="Background" Value="#24282C" />
     </Style>
+
+    <!-- 暗色主题下 Menu/MenuItem 显式样式，防止 FluentTheme 继承链断了黑字黑底 -->
+    <Style Selector="Menu > MenuItem">
+      <Setter Property="Foreground" Value="#E5E7EB" />
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="Padding" Value="10,6" />
+    </Style>
+    <Style Selector="Menu > MenuItem:pointerover">
+      <Setter Property="Background" Value="#2A2D31" />
+    </Style>
+    <Style Selector="MenuItem">
+      <Setter Property="Foreground" Value="#E5E7EB" />
+      <Setter Property="Background" Value="#1F2124" />
+      <Setter Property="Padding" Value="14,6" />
+    </Style>
   </Window.Styles>
 
   <Grid RowDefinitions="Auto,Auto,*,Auto">
-    <Menu Grid.Row="0" x:Name="TopMenu" />
+    <Menu Grid.Row="0" x:Name="TopMenu"
+          Background="#1F2124" Foreground="#E5E7EB" Padding="8,4" />
 
-    <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="6" Margin="8,4" x:Name="Toolbar">
+    <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="6" Margin="8,4" x:Name="Toolbar"
+                Background="#181A1D">
       <Button Classes="tool" x:Name="BtnOpenFolder" Content="打开文件夹" ToolTip.Tip="Ctrl+O 打开文件夹" />
       <Button Classes="tool" x:Name="BtnOpenImages" Content="打开图片" ToolTip.Tip="Ctrl+Shift+O 打开多张图片" />
       <Button Classes="tool" x:Name="BtnSort" Content="排序 ▾" ToolTip.Tip="切换排序方式" />
