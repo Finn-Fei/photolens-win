@@ -1113,7 +1113,7 @@ public partial class MainWindow : Window
         }
     }
 
-    /// <summary>生成 PhotoLens 应用图标（运行时用 SkiaSharp 画，无需外部文件）。</summary>
+    /// <summary>生成 PhotoLens 应用图标（运行时用 SkiaSharp 画，与 exe 嵌入图标风格一致）。</summary>
     private static Bitmap GenerateAppIcon()
     {
         const int size = 128;
@@ -1122,32 +1122,38 @@ public partial class MainWindow : Window
 
         // 深蓝渐变背景圆
         using var bgShader = SKShader.CreateRadialGradient(
-            new SKPoint(size / 2f, size / 2f), size / 2f,
-            new[] { new SKColor(0x1E3A5F), new SKColor(0x0A1628) },
+            new SKPoint(size / 2f, size / 2f), size / 2f - 2,
+            new[] { new SKColor(0xFF3A6EA5), new SKColor(0xFF0A1628) },
             new[] { 0f, 1f }, SKShaderTileMode.Clamp);
         using var bgPaint = new SKPaint { IsAntialias = true, Shader = bgShader };
         canvas.DrawCircle(size / 2f, size / 2f, size / 2f - 2, bgPaint);
 
-        // 白色光圈
-        using var ringPaint = new SKPaint
-        {
-            IsAntialias = true,
-            Style = SKPaintStyle.Stroke,
-            Color = new SKColor(0xFF5C99FF),
-            StrokeWidth = 4,
-        };
-        canvas.DrawCircle(size / 2f, size / 2f, size / 2f - 10, ringPaint);
-
-        // 中心白色十字 + 小圆点
+        // 白色相机图标（机身 + 镜头 + 顶盖）
         float cx = size / 2f, cy = size / 2f;
-        using var crossPaint = new SKPaint
-        {
-            IsAntialias = true, Color = new SKColor(0xFF5C99FF), StrokeWidth = 8, StrokeCap = SKStrokeCap.Round,
-        };
-        canvas.DrawLine(cx - 24, cy, cx + 24, cy, crossPaint);
-        canvas.DrawLine(cx, cy - 24, cx, cy + 24, crossPaint);
-        using var dotPaint = new SKPaint { IsAntialias = true, Color = new SKColor(0xFFFFFFFF) };
-        canvas.DrawCircle(cx, cy, 8, dotPaint);
+        float bodyW = size * 0.62f;
+        float bodyH = size * 0.42f;
+        float bodyX = cx - bodyW / 2;
+        float bodyY = cy - bodyH / 2 + size * 0.03f;
+
+        using var bodyPaint = new SKPaint { IsAntialias = true, Color = new SKColor(0xFFE8EEF5) };
+        canvas.DrawRoundRect(new SKRoundRect(new SKRect(bodyX, bodyY, bodyX + bodyW, bodyY + bodyH), 6), bodyPaint);
+
+        // 镜头圆孔 + 蓝环
+        float lensR = size * 0.14f;
+        float lensCx = cx;
+        float lensCy = cy + size * 0.05f;
+        using var lensPaint = new SKPaint { IsAntialias = true, Color = new SKColor(0xFF1A1A1A) };
+        canvas.DrawCircle(lensCx, lensCy, lensR, lensPaint);
+        using var lensRing = new SKPaint { IsAntialias = true, Style = SKPaintStyle.Stroke, Color = new SKColor(0xFF3A6EA5), StrokeWidth = 3 };
+        canvas.DrawCircle(lensCx, lensCy, lensR + 3, lensRing);
+
+        // 镜头反光点
+        using var glint = new SKPaint { IsAntialias = true, Color = new SKColor(0x88FFFFFF) };
+        canvas.DrawCircle(lensCx - lensR * 0.35f, lensCy - lensR * 0.35f, lensR * 0.18f, glint);
+
+        // 顶盖
+        using var topPaint = new SKPaint { IsAntialias = true, Color = new SKColor(0xFFE8EEF5) };
+        canvas.DrawRoundRect(new SKRoundRect(new SKRect(cx - size * 0.06f, bodyY - size * 0.04f, cx + size * 0.06f, bodyY + size * 0.01f), 3), topPaint);
 
         using var ms = new MemoryStream();
         using var encoded = bmp.Encode(SKEncodedImageFormat.Png, 100);
