@@ -356,19 +356,29 @@ public class ImageViewer : Control
 
     public static string[] ExtractPaths(IDataObject data)
     {
+        // 优先读内部拖放自定义格式（Filmstrip 等 Avalonia 控件发起的 DoDragDrop）
         try
         {
             if (data.Contains("photolens-path") && data.Get("photolens-path") is string p && p.Length > 0)
-            {
                 return new[] { p };
+        }
+        catch { }
+        // 外部文件拖放：GetFiles 依赖 Win32 剪贴板格式，内部 Avalonia 拖放时可能抛异常
+        try
+        {
+            var files = data.GetFiles();
+            if (files is not null)
+            {
+                var result = files
+                    .Select(f => f?.Path.LocalPath)
+                    .Where(s => !string.IsNullOrEmpty(s))
+                    .Cast<string>()
+                    .ToArray();
+                if (result.Length > 0) return result;
             }
         }
         catch { }
-        return data.GetFiles()?
-            .Select(f => f?.Path.LocalPath)
-            .Where(s => !string.IsNullOrEmpty(s))
-            .Cast<string>()
-            .ToArray() ?? Array.Empty<string>();
+        return Array.Empty<string>();
     }
 
     private void RegisterDrop()

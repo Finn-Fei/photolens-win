@@ -21,13 +21,15 @@
       <Setter Property="Background" Value="#2E5C99" />
     </Style>
     <Style Selector="Button.glassArrow">
-      <Setter Property="Width" Value="36" />
-      <Setter Property="Height" Value="36" />
-      <Setter Property="CornerRadius" Value="18" />
-      <Setter Property="FontSize" Value="15" />
+      <Setter Property="Width" Value="48" />
+      <Setter Property="Height" Value="64" />
+      <Setter Property="CornerRadius" Value="10" />
+      <Setter Property="FontSize" Value="28" />
       <Setter Property="Foreground" Value="White" />
       <Setter Property="Opacity" Value="0.75" />
       <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Background" Value="#8816181B" />
+      <Setter Property="Padding" Value="0" />
     </Style>
     <Style Selector="Button.glassArrow:pointerover /template/ ContentPresenter">
       <Setter Property="Background" Value="#CC2A2D31" />
@@ -122,9 +124,9 @@
         <Panel Grid.Column="0">
           <local:ImageViewer x:Name="MainViewer" />
           <Button Classes="glassArrow" x:Name="BtnPrev" Content="‹" IsVisible="False"
-                  HorizontalAlignment="Left" Margin="14,0,0,0" />
+                  HorizontalAlignment="Left" VerticalAlignment="Center" Margin="14,0,0,0" />
           <Button Classes="glassArrow" x:Name="BtnNext" Content="›" IsVisible="False"
-                  HorizontalAlignment="Right" Margin="0,0,14,0" />
+                  HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,14,0" />
           <Border Classes="infoPanel" x:Name="InfoPanel" IsVisible="False"
                   HorizontalAlignment="Right" VerticalAlignment="Top">
             <ScrollViewer>
