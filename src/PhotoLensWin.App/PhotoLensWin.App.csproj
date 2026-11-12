@@ -19,9 +19,11 @@
     <PackageReference Include="SkiaSharp" Version="2.88.9" />
   </ItemGroup>
 
-  <!-- 运行时 WindowIcon 从这里读，和 ApplicationIcon (app.ico) 同源，改一处两处同步 -->
+  <!-- app.png 随 exe 输出，GenerateAppIcon() 读文件，与 app.ico 同源 -->
   <ItemGroup>
-    <Resource Include="app.png" />
+    <Content Include="app.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
 
   <ItemGroup>

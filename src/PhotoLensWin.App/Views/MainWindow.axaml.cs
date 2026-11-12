@@ -1113,15 +1113,15 @@ public partial class MainWindow : Window
         }
     }
 
-    /// <summary>WindowIcon 从嵌入资源 app.png 读取，与 exe 的 ApplicationIcon (app.ico) 同源。
-    /// 改图标只需换 app.ico + app.png 两个文件，两边自动同步，不会再漏改。</summary>
+    /// <summary>WindowIcon 从 app.png 文件读取，与 exe 的 ApplicationIcon (app.ico) 同源。
+    /// 改图标只需换 app.ico + app.png 两个文件，两边自动同步。</summary>
     private static Bitmap GenerateAppIcon()
     {
-        var asm = System.Reflection.Assembly.GetExecutingAssembly();
-        // Avalonia Resource 嵌入后以 "程序集名.app.png" 形式存
-        using var stream = asm.GetManifestResourceStream("PhotoLensWin.App.app.png");
-        if (stream is null)
-            throw new InvalidOperationException("嵌入资源 PhotoLensWin.App.app.png 未找到");
+        var dir = Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location)!;
+        var pngPath = Path.Combine(dir, "app.png");
+        if (!File.Exists(pngPath))
+            throw new InvalidOperationException($"图标文件未找到: {pngPath}");
+        using var stream = File.OpenRead(pngPath);
         return new Bitmap(stream);
     }
 
