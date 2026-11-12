@@ -19,6 +19,11 @@
     <PackageReference Include="SkiaSharp" Version="2.88.9" />
   </ItemGroup>
 
+  <!-- 运行时 WindowIcon 从这里读，和 ApplicationIcon (app.ico) 同源，改一处两处同步 -->
+  <ItemGroup>
+    <Resource Include="app.png" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\PhotoLensWin.Core\PhotoLensWin.Core.csproj" />
   </ItemGroup>
