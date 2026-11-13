@@ -9,6 +9,10 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>12</LangVersion>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- 用手写 AssemblyInfo.cs，关闭自动生成避免重复特性定义 -->
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <!-- Version 保留给 MSBuild 写入 AssemblyVersion/FileVersion -->
+    <Deterministic>true</Deterministic>
   </PropertyGroup>
 
   <ItemGroup>
