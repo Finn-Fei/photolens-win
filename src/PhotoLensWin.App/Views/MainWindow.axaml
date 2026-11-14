@@ -74,12 +74,13 @@
       <Setter Property="Foreground" Value="#E8A33D" />
     </Style>
     <Style Selector="Border.infoPanel">
-      <Setter Property="Width" Value="216" />
+      <!-- 对齐 mac：宽度随内容自适应，200–300 之间，不再固定 216 挤压画布 -->
+      <Setter Property="MinWidth" Value="200" />
+      <Setter Property="MaxWidth" Value="300" />
       <Setter Property="Background" Value="{DynamicResource InfoPanelBackground}" />
       <Setter Property="CornerRadius" Value="8" />
       <Setter Property="Margin" Value="0,18,18,0" />
       <Setter Property="Padding" Value="10,9" />
-      <Setter Property="Opacity" Value="0.9" />
     </Style>
     <Style Selector="TextBlock.infoText">
       <Setter Property="FontSize" Value="12.5" />
@@ -130,7 +131,8 @@
         <Button Classes="tool" x:Name="BtnFit" Content="适合窗口" ToolTip.Tip="F 或 9" />
         <Button Classes="tool" x:Name="BtnActual" Content="实际大小" ToolTip.Tip="0 或双击" />
       </StackPanel>
-      <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+      <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled"
+                    ScrollViewer.AllowAutoHide="False">
         <StackPanel Orientation="Horizontal" Spacing="6" x:Name="Toolbar">
           <Button Classes="tool" x:Name="BtnOpenFolder" Content="打开文件夹" ToolTip.Tip="Ctrl+O 打开文件夹" />
           <Button Classes="tool" x:Name="BtnOpenImages" Content="打开图片" ToolTip.Tip="Ctrl+Shift+O 打开多张图片" />
@@ -145,43 +147,45 @@
       </ScrollViewer>
     </DockPanel>
 
-    <Grid Grid.Row="2" ColumnDefinitions="232,Auto,1*">
-      <local:Filmstrip x:Name="Strip" MinWidth="120" MaxWidth="480"
-                       Grid.Column="0" VerticalAlignment="Stretch" />
-      <GridSplitter Grid.Column="1" Width="5" Background="{DynamicResource DividerBackground}" HorizontalAlignment="Stretch" />
+    <Panel Grid.Row="2">
+      <Grid ColumnDefinitions="232,Auto,1*">
+        <local:Filmstrip x:Name="Strip" MinWidth="120" MaxWidth="480"
+                         Grid.Column="0" VerticalAlignment="Stretch" />
+        <GridSplitter Grid.Column="1" Width="5" Background="{DynamicResource DividerBackground}" HorizontalAlignment="Stretch" />
 
-      <Grid Grid.Column="2" x:Name="MainSplit" ColumnDefinitions="1*,0,0">
-        <!-- 主画布 -->
-        <Panel Grid.Column="0">
-          <local:ImageViewer x:Name="MainViewer" />
-          <!-- 信息面板先声明（在下层），翻页箭头后声明（在上层），避免长 EXIF 时面板挡住右侧箭头 -->
-          <Border Classes="infoPanel" x:Name="InfoPanel" IsVisible="False" MaxHeight="300"
-                  HorizontalAlignment="Right" VerticalAlignment="Top">
-            <ScrollViewer>
-              <TextBlock Classes="infoText" x:Name="InfoText" />
-            </ScrollViewer>
-          </Border>
-          <Button Classes="glassArrow" x:Name="BtnPrev" Content="‹"
-                  HorizontalAlignment="Left" VerticalAlignment="Center" Margin="14,0,0,0" />
-          <Button Classes="glassArrow" x:Name="BtnNext" Content="›"
-                  HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,14,0" />
-        </Panel>
+        <Grid Grid.Column="2" x:Name="MainSplit" ColumnDefinitions="1*,0,0">
+          <!-- 主画布 -->
+          <Panel Grid.Column="0">
+            <local:ImageViewer x:Name="MainViewer" />
+            <Button Classes="glassArrow" x:Name="BtnPrev" Content="‹"
+                    HorizontalAlignment="Left" VerticalAlignment="Center" Margin="14,0,0,0" />
+            <Button Classes="glassArrow" x:Name="BtnNext" Content="›"
+                    HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,14,0" />
+          </Panel>
 
-        <!-- 对比区（进入对比模式时展开） -->
-        <Border Grid.Column="1" Classes="divider" x:Name="CompareDivider" IsVisible="False" />
-        <Grid Grid.Column="2" x:Name="CompareArea" IsVisible="False">
-          <local:ImageViewer x:Name="CompareViewer" Margin="0,0,0,0" />
+          <!-- 对比区（进入对比模式时展开） -->
+          <Border Grid.Column="1" Classes="divider" x:Name="CompareDivider" IsVisible="False" />
+          <Grid Grid.Column="2" x:Name="CompareArea" IsVisible="False">
+            <local:ImageViewer x:Name="CompareViewer" Margin="0,0,0,0" />
+          </Grid>
         </Grid>
       </Grid>
-    </Grid>
+
+      <!-- 信息面板锚定整窗右上角（对齐 mac）：不参与左右分栏，对比模式下浮在右窗格上方 -->
+      <Border Classes="infoPanel" x:Name="InfoPanel" IsVisible="False" MaxHeight="300"
+              HorizontalAlignment="Right" VerticalAlignment="Top">
+        <ScrollViewer>
+          <TextBlock Classes="infoText" x:Name="InfoText" />
+        </ScrollViewer>
+      </Border>
+    </Panel>
 
     <Border Grid.Row="3" Background="{DynamicResource StatusBackground}" Height="34">
-      <Grid ColumnDefinitions="1*,Auto,1*">
+      <Grid ColumnDefinitions="1*,2*,Auto">
         <TextBlock Grid.Column="0" Classes="bar" x:Name="NameLabel" Margin="12,0"
                    HorizontalAlignment="Left" TextTrimming="CharacterEllipsis" />
         <TextBlock Grid.Column="1" Classes="bar" x:Name="HintLabel"
-                   HorizontalAlignment="Center" TextTrimming="CharacterEllipsis"
-                   MaxWidth="560" />
+                   HorizontalAlignment="Center" TextTrimming="CharacterEllipsis" />
         <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right"
                     Margin="12,0" Spacing="14">
           <TextBlock Classes="bar" x:Name="IndexLabel" />

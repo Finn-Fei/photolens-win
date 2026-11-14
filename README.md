@@ -52,7 +52,7 @@ powershell -ExecutionPolicy Bypass -File build.ps1
 
 ```bash
 dotnet build                       # 0 警告 0 错误
-dotnet test                        # 69 项单元测试（Core 逻辑：排序/评分/方向矩阵/目录/设置）
+dotnet test                        # 71 项单元测试（Core 逻辑：排序/评分/方向矩阵/目录/设置）
 dotnet run --project src/PhotoLensWin.App -- [文件夹或图片路径...]
 ```
 
@@ -113,14 +113,14 @@ PHOTOLENS_SNAPSHOT_BROWSE=1  # 截图前逐张切换，覆盖缓存淘汰路径
 PhotoLensWin.sln
 ├── src/PhotoLensWin.Core      # 纯逻辑：自然排序、六种排序规则、目录收集、画质评分、EXIF 方向矩阵、视图变换数学、设置
 ├── src/PhotoLensWin.App       # Avalonia UI：主窗口、胶片栏、图像查看器、缩略图缓存、拖放
-└── tests/PhotoLensWin.Tests   # 69 项单元测试（xunit）
+└── tests/PhotoLensWin.Tests   # 71 项单元测试（xunit）
 ```
 
 ## 已验证与未验证
 
 已在本机（macOS + Avalonia 11.3.2）实测核验（单元测试 + 整窗快照）：
 
-- 自然排序 `a1 < a2 < a10`、六种排序规则与稳定兜底（69 项测试全部通过）
+- 自然排序 `a1 < a2 < a10`、六种排序规则与稳定兜底（71 项测试全部通过）
 - 画质评分公式与夜景曝光豁免、评分失败回退「不可用」
 - EXIF 方向 1–8 的四角映射与宽高互换（含方向 7 回归）
 - 文件与其父目录重复拖入的去重

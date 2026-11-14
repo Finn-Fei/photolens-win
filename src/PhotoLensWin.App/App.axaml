@@ -24,7 +24,7 @@
           <SolidColorBrush x:Key="CardBorder" Color="#2A2D30" />
           <SolidColorBrush x:Key="CardSelectedBackground" Color="#225C99FF" />
           <SolidColorBrush x:Key="CardSelectedBorder" Color="#5C99FF" />
-          <SolidColorBrush x:Key="InfoPanelBackground" Color="#B016181B" />
+          <SolidColorBrush x:Key="InfoPanelBackground" Color="#F216181B" />
           <SolidColorBrush x:Key="InfoForeground" Color="#D6DADF" />
           <SolidColorBrush x:Key="ToolHover" Color="#2A2D31" />
           <SolidColorBrush x:Key="ToggleOn" Color="#2E5C99" />
@@ -44,7 +44,7 @@
           <SolidColorBrush x:Key="CardBorder" Color="#D6DAE0" />
           <SolidColorBrush x:Key="CardSelectedBackground" Color="#2266A8E8" />
           <SolidColorBrush x:Key="CardSelectedBorder" Color="#2E86DE" />
-          <SolidColorBrush x:Key="InfoPanelBackground" Color="#E6FFFFFF" />
+          <SolidColorBrush x:Key="InfoPanelBackground" Color="#F7FFFFFF" />
           <SolidColorBrush x:Key="InfoForeground" Color="#30363D" />
           <SolidColorBrush x:Key="ToolHover" Color="#DFE3E8" />
           <SolidColorBrush x:Key="ToggleOn" Color="#2E5C99" />

@@ -23,7 +23,7 @@ namespace PhotoLensWin.App.Views;
 
 public partial class MainWindow : Window
 {
-    private const string DefaultHint = "←/→ 切换图片 · 双击缩放 · Ctrl+滚轮缩放 · 拖入图片或文件夹";
+    private const string DefaultHint = "滚轮缩放 · 拖动平移 · 按住 Z 放大镜 · ←/→ 切换";
 
     private readonly ThumbnailStore _thumbs = new();
     private readonly ImageStore _imageStore = new();
@@ -228,8 +228,15 @@ public partial class MainWindow : Window
         BtnList.Click += (_, _) => ToggleList();
         BtnSlideshow.Click += (_, _) => ToggleSlideshow();
 
-        BtnFit.Click += (_, _) => MainViewer.FitToWindow();
-        BtnActual.Click += (_, _) => MainViewer.SetActualSize();
+        // 对比模式下同时作用于右图，避免"右图没有任何适配控件"的割裂感
+        BtnFit.Click += (_, _) => {
+            MainViewer.FitToWindow();
+            if (_compareOn) CompareViewer.FitToWindow();
+        };
+        BtnActual.Click += (_, _) => {
+            MainViewer.SetActualSize();
+            if (_compareOn) CompareViewer.SetActualSize();
+        };
         BtnPrev.Click += (_, _) => Step(-1);
         BtnNext.Click += (_, _) => Step(1);
 
@@ -241,8 +248,9 @@ public partial class MainWindow : Window
         };
         MainViewer.ArrowsChanged += (prev, next) =>
         {
-            BtnPrev.IsVisible = prev && !_compareOn;
-            BtnNext.IsVisible = next && !_compareOn;
+            // 对比模式下箭头仍作用于左图（右侧用下拉框选图），不再整体隐藏
+            BtnPrev.IsVisible = prev;
+            BtnNext.IsVisible = next;
         };
 
         Strip.SelectionChanged += entry =>
@@ -251,6 +259,11 @@ public partial class MainWindow : Window
             if (index >= 0) SelectIndex(index);
         };
         ComparePicker.SelectionChanged += OnComparePicked;
+
+        ResetHint();
+        // 信息面板浮在整窗右上角，窗口较矮时会把右箭头盖住；布局变化后重新让位
+        InfoPanel.LayoutUpdated += (_, _) => UpdateNextArrowMargin();
+        MainViewer.SizeChanged += (_, _) => UpdateNextArrowMargin();
 
         MainViewer.ContextMenu = BuildViewerMenu(isMain: true);
         CompareViewer.ContextMenu = BuildViewerMenu(isMain: false);
@@ -822,6 +835,28 @@ public partial class MainWindow : Window
         InfoPanel.IsVisible = _infoOn;
         if (_infoOn) BtnInfo.Classes.Add("toggleOn"); else BtnInfo.Classes.Remove("toggleOn");
         if (_infoOn) RefreshInfo();
+        UpdateNextArrowMargin();
+    }
+
+    /// <summary>信息面板高度随内容自适应，窗口较矮时会压住右箭头；此时把箭头左移让开面板。</summary>
+    private void UpdateNextArrowMargin()
+    {
+        double arrowHeight = BtnNext.Bounds.Height > 0 ? BtnNext.Bounds.Height : 44;
+        double arrowTop = (MainViewer.Bounds.Height - arrowHeight) / 2;
+        // 面板与箭头都用整窗行的坐标比较：对比模式下画布变窄，面板可能已经不在箭头正上方
+        bool covered = false;
+        if (InfoPanel.IsVisible && InfoPanel.Bounds.Height > 0 && InfoPanel.Parent is Visual row
+            && MainViewer.TranslatePoint(new Point(0, 0), row) is { } origin)
+        {
+            double arrowRight = origin.X + MainViewer.Bounds.Width - 14;
+            bool vertical = origin.Y + arrowTop < InfoPanel.Bounds.Top + InfoPanel.Bounds.Height;
+            bool horizontal = InfoPanel.Bounds.X < arrowRight;
+            covered = vertical && horizontal;
+        }
+        double right = covered ? InfoPanel.Bounds.Width + 18 + 10 : 14;
+        // LayoutUpdated 会高频触发，值没变就不要改，避免反复重新布局
+        if (Math.Abs(BtnNext.Margin.Right - right) < 0.5) return;
+        BtnNext.Margin = new Thickness(0, 0, right, 0);
     }
 
     private void RefreshInfo()

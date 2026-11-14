@@ -8,5 +8,5 @@ using System.Reflection;
 [assembly: AssemblyDescription("Fast, lightweight photo viewer with side-by-side comparison, filmstrip, and gesture navigation")]
 [assembly: AssemblyCopyright("© 2025 PhotoLens — macOS inspiration, Windows implementation")]
 [assembly: AssemblyTrademark("")]
-[assembly: AssemblyVersion("1.2.0.0")]
-[assembly: AssemblyFileVersion("1.2.0.0")]
+[assembly: AssemblyVersion("1.2.1.0")]
+[assembly: AssemblyFileVersion("1.2.1.0")]
