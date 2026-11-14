@@ -147,6 +147,8 @@ public partial class MainWindow : Window
             if (wantInfo || wantCompare) await Task.Delay(500);
         }
 
+        await Dispatcher.UIThread.InvokeAsync(() => CheckLayoutBounds(snapshotPath));
+
         await Dispatcher.UIThread.InvokeAsync(() =>
         {
             try
@@ -165,6 +167,64 @@ public partial class MainWindow : Window
             }
         });
         (Application.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime)?.Shutdown(0);
+    }
+
+    /// <summary>
+    /// 布局不变量自检（随快照模式一起跑）：已布局的可见元素不得超出父容器边界。
+    /// 容忍 0.5px 取整误差；滚动内容、Canvas 定位、Popup 属于合法越界，跳过。
+    /// 结果写入快照同目录 layout-check.txt，有越界时同时记错误日志。
+    /// </summary>
+    private void CheckLayoutBounds(string snapshotPath)
+    {
+        const double tolerance = 0.5;
+        var violations = new List<string>();
+
+        static bool IsExempt(Visual v) =>
+            v is Canvas ||
+            v is Avalonia.Controls.Presenters.ScrollContentPresenter ||
+            v is Avalonia.Controls.Primitives.Popup;
+
+        void Visit(Visual parent)
+        {
+            foreach (var child in Avalonia.VisualTree.VisualExtensions.GetVisualChildren(parent))
+            {
+                if (child is not Visual cv || !cv.IsVisible || cv.Bounds.Width <= 0 || cv.Bounds.Height <= 0)
+                    continue;
+
+                if (!IsExempt(parent) && !IsExempt(cv))
+                {
+                    var b = cv.Bounds;
+                    double left = -b.X;
+                    double top = -b.Y;
+                    double right = b.Right - parent.Bounds.Width;
+                    double bottom = b.Bottom - parent.Bounds.Height;
+                    if (left > tolerance || top > tolerance || right > tolerance || bottom > tolerance)
+                    {
+                        violations.Add($"{cv.GetType().Name} 超出 {parent.GetType().Name}：" +
+                                       $"left={left:F1} top={top:F1} right={right:F1} bottom={bottom:F1}");
+                    }
+                }
+
+                Visit(cv);
+            }
+        }
+
+        try
+        {
+            Visit(this);
+            var dir = Path.GetDirectoryName(snapshotPath);
+            if (!string.IsNullOrEmpty(dir))
+                File.WriteAllText(Path.Combine(dir, "layout-check.txt"),
+                    violations.Count == 0
+                        ? "PASS：无元素越界"
+                        : $"FAIL：{violations.Count} 处越界{Environment.NewLine}" + string.Join(Environment.NewLine, violations));
+            if (violations.Count > 0)
+                LogError("layout check: " + string.Join(" | ", violations));
+        }
+        catch (Exception ex)
+        {
+            LogError("layout check failed: " + ex.Message);
+        }
     }
 
     // MARK: 窗口持久化

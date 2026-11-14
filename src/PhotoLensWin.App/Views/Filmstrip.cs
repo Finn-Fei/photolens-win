@@ -52,6 +52,10 @@ public class Filmstrip : Border
         _scroller.Content = _list;
         Child = _scroller;
 
+        // 卡片宽度锁定为列表可视宽度：StackPanel 会按子项 DesiredSize 排列，
+        // 横图缩略图天然宽度大于列宽时会被排到列外、右侧被裁掉。
+        _list.SizeChanged += (_, e) => SyncItemWidths(e.NewSize.Width);
+
         // 外层 Border 处理拖拽/点击：Capture(this) 后事件都路由到 Border，
         // 内部 ScrollViewer 不会被干扰（滚轮由 ScrollViewer 基类自己处理）
         PointerPressed += OnPress;
@@ -70,6 +74,7 @@ public class Filmstrip : Border
         for (int i = 0; i < entries.Count; i++)
         {
             var item = new FilmItem(entries[i], Store, i < HighPriorityCount);
+            if (_list.Bounds.Width > 0) item.Width = _list.Bounds.Width;
             _list.Children.Add(item);
             _items.Add(item);
         }
@@ -81,6 +86,13 @@ public class Filmstrip : Border
         {
             Select(target, scrollIntoView: false, notify: false);
         }
+    }
+
+    /// <summary>卡片宽度跟随列宽，避免横图缩略图撑出列外被裁。</summary>
+    private void SyncItemWidths(double width)
+    {
+        if (width <= 0) return;
+        foreach (var item in _items) item.Width = width;
     }
 
     /// <summary>外部切换当前图（方向键/拖入预览）时同步选中态与滚动位置。
