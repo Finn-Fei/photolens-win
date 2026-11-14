@@ -504,6 +504,8 @@ public partial class MainWindow : Window
         var entry = _images[index];
         NameLabel.Text = entry.Name;
         IndexLabel.Text = $"{index + 1} / {_images.Count}";
+        // Windows 惯例：标题栏带当前文件名，Alt+Tab / 任务栏可辨认
+        Title = $"{entry.Name} — PhotoLens";
 
         _ = LoadAndPresentAsync(entry);
 
@@ -572,6 +574,7 @@ public partial class MainWindow : Window
         NameLabel.Text = "PhotoLens";
         IndexLabel.Text = "";
         ZoomLabel.Text = "";
+        Title = "PhotoLens";
         MainViewer.ShowMessage("把图片或文件夹拖到这里\n或者按 Ctrl+O 打开");
         MainViewer.SetArrows(false, false);
         RebuildComparePicker();
@@ -790,6 +793,7 @@ public partial class MainWindow : Window
             MainViewer.Present(loaded);
             NameLabel.Text = Path.GetFileName(path);
             IndexLabel.Text = "拖入预览";
+            Title = $"{Path.GetFileName(path)} — PhotoLens";
             if (_infoOn) RefreshInfo();
         }
         catch (Exception ex)
@@ -969,6 +973,11 @@ public partial class MainWindow : Window
         {
             case Key.Left: Step(-1); e.Handled = true; break;
             case Key.Right: Step(1); e.Handled = true; break;
+            // Windows 惯例：Home / End 跳首尾，Delete 删除到回收站，F5 幻灯片
+            case Key.Home: if (_images.Count > 0) { SelectIndex(0); e.Handled = true; } break;
+            case Key.End: if (_images.Count > 0) { SelectIndex(_images.Count - 1); e.Handled = true; } break;
+            case Key.Delete: _ = DeleteCurrentFileAsync(); e.Handled = true; break;
+            case Key.F5: ToggleSlideshow(); e.Handled = true; break;
             case Key.Space:
                 if (MainViewer.Current is not null)
                 {
@@ -983,6 +992,9 @@ public partial class MainWindow : Window
                 _ = OpenFolderAsync(); e.Handled = true; break;
             case Key.I: ToggleInfo(); e.Handled = true; break;
             case Key.L: ToggleList(); e.Handled = true; break;
+            case Key.R when e.KeyModifiers.HasFlag(KeyModifiers.Control):
+                // Windows 照片用 Ctrl+R 旋转；保留单键 R 兼容原快捷键
+                MainViewer.RotateClockwise(); e.Handled = true; break;
             case Key.R: MainViewer.RotateClockwise(); e.Handled = true; break;
             case Key.D9: MainViewer.FitToWindow(); e.Handled = true; break;
             case Key.D0 or Key.D1: MainViewer.SetActualSize(); e.Handled = true; break;
@@ -1038,9 +1050,18 @@ public partial class MainWindow : Window
         copyPath.Click += async (_, _) => await CopyTextAsync(PathOf(isMain) ?? "");
         items.Add(copyPath);
 
-        var reveal = new MenuItem { Header = "打开文件所在位置" };
+        var reveal = new MenuItem { Header = "打开文件所在的位置" };
         reveal.Click += (_, _) => RevealInExplorer(isMain);
         items.Add(reveal);
+
+        // Windows 资源管理器右键惯例：打开方式 / 属性
+        var openWith = new MenuItem { Header = "打开方式…" };
+        openWith.Click += (_, _) => LaunchShellVerb(isMain, "openas");
+        items.Add(openWith);
+
+        var properties = new MenuItem { Header = "属性" };
+        properties.Click += (_, _) => LaunchShellVerb(isMain, "properties");
+        items.Add(properties);
 
         var saveJpeg = new MenuItem { Header = "另存为 JPEG…" };
         saveJpeg.Click += async (_, _) => await SaveCurrentAsAsync(isMain, jpeg: true);
@@ -1151,6 +1172,22 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>调用 Windows Shell 动词（openas / properties），与资源管理器右键菜单一致。</summary>
+    private void LaunchShellVerb(bool isMain, string verb)
+    {
+        var path = PathOf(isMain);
+        if (string.IsNullOrEmpty(path)) return;
+        try
+        {
+            Process.Start(new ProcessStartInfo(path) { UseShellExecute = true, Verb = verb });
+        }
+        catch (Exception ex)
+        {
+            LogError($"shell verb {verb} failed: {ex.Message}");
+            ShowToast("操作失败：" + ex.Message);
+        }
+    }
+
     private async Task SaveCurrentAsAsync(bool isMain, bool jpeg)
     {
         var image = isMain ? MainViewer.Current : CompareViewer.Current;
@@ -1198,7 +1235,8 @@ public partial class MainWindow : Window
         {
             await Task.Run(() =>
             {
-                int result = NativeMethods.DeleteFileToRecycleBin(path, confirm: true);
+                // Windows 照片删除到回收站时不弹系统确认框（可回收，失败/误删有 Toast 与回收站兜底）
+                int result = NativeMethods.DeleteFileToRecycleBin(path, confirm: false);
                 if (result == 2) canceled = true; // DE_RESABORTED / 用户取消
                 if (result != 0 && result != 2)
                     throw new InvalidOperationException("SHFileOperation failed: " + result);

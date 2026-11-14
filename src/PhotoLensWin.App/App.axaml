@@ -4,6 +4,10 @@
              RequestedThemeVariant="Dark">
   <Application.Styles>
     <FluentTheme />
+    <!-- Windows 原生字体：西文 Segoe UI，中文回退微软雅黑 UI，不再用打包的 Inter -->
+    <Style Selector="Window">
+      <Setter Property="FontFamily" Value="Segoe UI, Microsoft YaHei UI, Segoe UI Emoji" />
+    </Style>
   </Application.Styles>
 
   <!-- 亮/暗两套语义色：界面里不再出现硬编码色值，切换主题时全部跟着变 -->
