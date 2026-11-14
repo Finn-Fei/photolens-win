@@ -4,6 +4,22 @@
 
 ---
 
+## PhotoLensWin-1.2.3 — 2026-11-14
+
+按 Windows 用户习惯补充两项可配置行为（胶片栏保持左侧竖排，不改布局）。
+
+### 新增
+- **主题 → 跟随系统**：新增 `System` 选项，深色/浅色/跟随系统三选一，写入 `settings.json`
+- **鼠标滚轮行为可配**：视图 → 鼠标滚轮，可选「缩放」（默认）或「切换上一张/下一张」，对齐 Windows 照片的同名设置；`Ctrl+滚轮` 始终缩放（Windows 惯例）
+- 底部提示文案随滚轮设置切换，不再出现“提示说缩放、实际在翻页”
+- 菜单勾选状态在设置加载后同步（此前菜单按默认值构建）
+
+### 验证
+- `dotnet build -c Release` 0 警告 0 错误，71 项测试通过
+- 实机：滚轮切图（标题栏由 a_landscape.jpg 变为 b_portrait.jpg）、标题栏文件名、主题切换均生效
+
+---
+
 ## PhotoLensWin-1.2.2 — 2026-11-14
 
 Windows 使用习惯专项适配：核对 Windows 照片（Microsoft Photos）、Windows Photo Viewer 与资源管理器的实际行为，不再逐项照搬 mac。

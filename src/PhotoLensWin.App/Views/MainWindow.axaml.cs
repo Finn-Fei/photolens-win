@@ -23,7 +23,10 @@ namespace PhotoLensWin.App.Views;
 
 public partial class MainWindow : Window
 {
-    private const string DefaultHint = "滚轮缩放 · 拖动平移 · 按住 Z 放大镜 · ←/→ 切换";
+    /// <summary>底部提示随滚轮设置变化，避免文案与实际行为不符</summary>
+    private string HintText => _settings.WheelMode == "Navigate"
+        ? "滚轮切换 · Ctrl+滚轮缩放 · 拖动平移 · 按住 Z 放大镜 · ←/→ 切换"
+        : "滚轮缩放 · 拖动平移 · 按住 Z 放大镜 · ←/→ 切换";
 
     private readonly ThumbnailStore _thumbs = new();
     private readonly ImageStore _imageStore = new();
@@ -46,6 +49,8 @@ public partial class MainWindow : Window
     private bool _slideshowOn;
     /// <summary>用户拖好的胶片栏宽度，隐藏/显示时保持。</summary>
     private double _stripWidth = 232;
+    private MenuItem? _themeSystemItem, _themeDarkItem, _themeLightItem;
+    private MenuItem? _wheelZoomItem, _wheelNavItem;
 
     public MainWindow()
     {
@@ -83,6 +88,9 @@ public partial class MainWindow : Window
             ApplyListVisibility();
             UpdateSortButton();
             ApplyTheme(_settings.Theme);
+            MainViewer.WheelZooms = _settings.WheelMode != "Navigate";
+            SyncMenuChecks();
+            ResetHint();
             RestoreWindowBounds();
 
             var args = Environment.GetCommandLineArgs().Skip(1).Where(a => !a.StartsWith('-')).ToArray();
@@ -190,24 +198,52 @@ public partial class MainWindow : Window
 
     private void ApplyTheme(string? themeName)
     {
-        var variant = string.Equals(themeName, "Light", StringComparison.OrdinalIgnoreCase)
-            ? ThemeVariant.Light
-            : ThemeVariant.Dark;
+        var variant = themeName?.ToLowerInvariant() switch
+        {
+            "light" => ThemeVariant.Light,
+            "dark" => ThemeVariant.Dark,
+            _ => ThemeVariant.Default, // 跟随系统
+        };
         if (Application.Current is not null)
             Application.Current.RequestedThemeVariant = variant;
     }
 
-    private void ToggleTheme()
+    private void SetTheme(string theme)
     {
-        bool isLight = string.Equals(_settings.Theme, "Light", StringComparison.OrdinalIgnoreCase);
-        _settings.Theme = isLight ? "Dark" : "Light";
+        _settings.Theme = theme;
         SettingsStore.Save(_settings);
-        ApplyTheme(_settings.Theme);
-        UpdateRecentMenu();
-        ShowToast($"已切换到{_settings.Theme}主题");
+        ApplyTheme(theme);
+        SyncMenuChecks();
+        ShowToast(theme switch
+        {
+            "Light" => "主题：浅色",
+            "Dark" => "主题：深色",
+            _ => "主题：跟随系统",
+        });
+    }
+
+    /// <summary>滚轮行为：Zoom 缩放（默认）/ Navigate 切换图片；Ctrl+滚轮始终缩放。</summary>
+    private void SetWheelMode(string mode)
+    {
+        _settings.WheelMode = mode;
+        SettingsStore.Save(_settings);
+        MainViewer.WheelZooms = mode != "Navigate";
+        SyncMenuChecks();
+        ResetHint();
+        ShowToast(mode == "Navigate" ? "滚轮：切换图片（Ctrl+滚轮缩放）" : "滚轮：缩放");
     }
 
     // MARK: 控件接线
+
+    /// <summary>设置加载后同步菜单勾选状态：菜单在构造函数里按默认设置构建。</summary>
+    private void SyncMenuChecks()
+    {
+        if (_themeSystemItem is not null) _themeSystemItem.IsChecked = _settings.Theme == "System";
+        if (_themeDarkItem is not null) _themeDarkItem.IsChecked = _settings.Theme == "Dark";
+        if (_themeLightItem is not null) _themeLightItem.IsChecked = _settings.Theme == "Light";
+        if (_wheelZoomItem is not null) _wheelZoomItem.IsChecked = _settings.WheelMode != "Navigate";
+        if (_wheelNavItem is not null) _wheelNavItem.IsChecked = _settings.WheelMode == "Navigate";
+    }
 
     private void WireControls()
     {
@@ -241,6 +277,7 @@ public partial class MainWindow : Window
         BtnNext.Click += (_, _) => Step(1);
 
         MainViewer.OnDropFiles += HandleMainDrop;
+        MainViewer.WheelStepped += dir => Step(dir);
         CompareViewer.OnDropFiles += HandleCompareDrop;
         MainViewer.ScaleChanged += scale => {
             UpdateZoomLabel(scale, MainViewer.IsFitted);
@@ -288,6 +325,19 @@ public partial class MainWindow : Window
             return item;
         }
 
+        // 单选菜单项：同一父菜单内自动互斥
+        static MenuItem Radio(string header, bool isChecked, Action click)
+        {
+            var item = new MenuItem
+            {
+                Header = header,
+                ToggleType = MenuItemToggleType.Radio,
+                IsChecked = isChecked,
+            };
+            item.Click += (_, _) => click();
+            return item;
+        }
+
         // 文件
         var file = new MenuItem { Header = "文件(_F)" };
         file.Items.Add(Item("打开文件夹…　Ctrl+O", () => _ = OpenFolderAsync()));
@@ -309,12 +359,30 @@ public partial class MainWindow : Window
         view.Items.Add(Item("实际大小　0", MainViewer.SetActualSize));
         view.Items.Add(Item("放大　+", () => MainViewer.ZoomBy(1.25)));
         view.Items.Add(Item("缩小　-", () => MainViewer.ZoomBy(0.8)));
-        view.Items.Add(Item("顺时针旋转　R", MainViewer.RotateClockwise));
+        view.Items.Add(Item("顺时针旋转　R / Ctrl+R", MainViewer.RotateClockwise));
         view.Items.Add(new Separator());
         view.Items.Add(Item("图片信息　I", ToggleInfo));
         view.Items.Add(Item("全屏　F11", ToggleFullscreen));
         view.Items.Add(new Separator());
-        view.Items.Add(Item("主题：暗色/亮色", ToggleTheme));
+
+        // 主题：对齐 Windows 照片的设置习惯，新增「跟随系统」
+        var themeMenu = new MenuItem { Header = "主题" };
+        _themeSystemItem = Radio("跟随系统", _settings.Theme == "System", () => SetTheme("System"));
+        _themeDarkItem = Radio("深色", _settings.Theme == "Dark", () => SetTheme("Dark"));
+        _themeLightItem = Radio("浅色", _settings.Theme == "Light", () => SetTheme("Light"));
+        themeMenu.Items.Add(_themeSystemItem);
+        themeMenu.Items.Add(_themeDarkItem);
+        themeMenu.Items.Add(_themeLightItem);
+        view.Items.Add(themeMenu);
+
+        // 鼠标滚轮：Windows 照片同样提供「缩放 / 切换图片」二选一
+        var wheelMenu = new MenuItem { Header = "鼠标滚轮" };
+        _wheelZoomItem = Radio("缩放", _settings.WheelMode != "Navigate", () => SetWheelMode("Zoom"));
+        _wheelNavItem = Radio("切换上一张/下一张", _settings.WheelMode == "Navigate", () => SetWheelMode("Navigate"));
+        wheelMenu.Items.Add(_wheelZoomItem);
+        wheelMenu.Items.Add(_wheelNavItem);
+        view.Items.Add(wheelMenu);
+
         view.Items.Add(new Separator());
         view.Items.Add(Item("上一张　[", () => Step(-1)));
         view.Items.Add(Item("下一张　]", () => Step(1)));
@@ -945,7 +1013,7 @@ public partial class MainWindow : Window
     {
         _toastTimer.Stop();
         HintLabel.Classes.Remove("hintToast");
-        HintLabel.Text = DefaultHint;
+        HintLabel.Text = HintText;
     }
 
     private void UpdateZoomLabel(double scale, bool fitted)

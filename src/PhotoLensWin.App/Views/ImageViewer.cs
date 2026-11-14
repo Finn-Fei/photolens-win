@@ -50,12 +50,18 @@ public class ImageViewer : Control
     private bool _pinchActive;
     private double _pinchBaseScale = 1;
     private string _emptyHint = "把图片或文件夹拖到这里\n或者按 Ctrl+O 打开";
+    private double _wheelAccum;
+
+    /// <summary>滚轮是否缩放；false 时滚轮切换上一张/下一张（Ctrl+滚轮始终缩放）。</summary>
+    public bool WheelZooms { get; set; } = true;
 
     /// <summary>拖入文件/文件夹（主画布载入、对比画布装图）</summary>
     public event Action<string[]>? OnDropFiles;
     /// <summary>缩放比例变化（更新底部百分比）</summary>
     public event Action<double>? ScaleChanged;
     public event Action<bool, bool>? ArrowsChanged;
+    /// <summary>滚轮切换图片：-1 上一张，+1 下一张</summary>
+    public event Action<int>? WheelStepped;
 
     public ImageViewer()
     {
@@ -301,6 +307,18 @@ public class ImageViewer : Control
     private void OnWheel(object? sender, PointerWheelEventArgs e)
     {
         if (_current is null) return;
+        // 设置成「滚轮切换图片」时，滚轮翻页；Ctrl+滚轮仍按 Windows 惯例缩放
+        if (!WheelZooms && !e.KeyModifiers.HasFlag(KeyModifiers.Control))
+        {
+            _wheelAccum += e.Delta.Y;
+            if (Math.Abs(_wheelAccum) >= 1)
+            {
+                WheelStepped?.Invoke(_wheelAccum < 0 ? 1 : -1);
+                _wheelAccum = 0;
+            }
+            e.Handled = true;
+            return;
+        }
         var pos = e.GetPosition(this);
         double factor = e.Delta.Y > 0 ? 1.15 : 1 / 1.15;
         SyncTransformSize();

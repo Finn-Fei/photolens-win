@@ -21,8 +21,11 @@ public sealed class AppSettings
     public int WindowWidth { get; set; } = 1280;
     public int WindowHeight { get; set; } = 800;
 
-    // 新增：暗色/亮色主题
+    // 新增：暗色/亮色/跟随系统主题（System / Dark / Light）
     public string Theme { get; set; } = "Dark";
+
+    /// <summary>鼠标滚轮行为：Zoom=缩放，Navigate=上一张/下一张（对齐 Windows 照片的可选项）。</summary>
+    public string WheelMode { get; set; } = "Zoom";
 
     // 新增：最近打开的文件夹（上限 10）
     public List<string> RecentFolders { get; set; } = new();
@@ -54,6 +57,7 @@ public static class SettingsStore
             // 旧版本设置文件无 RecentFolders / Theme：补默认值
             settings.RecentFolders ??= new List<string>();
             if (string.IsNullOrEmpty(settings.Theme)) settings.Theme = "Dark";
+            if (string.IsNullOrEmpty(settings.WheelMode)) settings.WheelMode = "Zoom";
             return settings;
         }
         catch
