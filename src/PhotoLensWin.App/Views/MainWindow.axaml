@@ -105,7 +105,9 @@
       <Setter Property="BorderThickness" Value="2" />
     </Style>
 
-    <!-- 菜单显式样式：避免 FluentTheme 继承链断裂导致黑字黑底 -->
+    <!-- 菜单显式样式：避免 FluentTheme 继承链断裂导致黑字黑底。
+         纵向留白放在菜单项自己的 Padding 上：Menu 自带纵向 Padding 时，
+         菜单项会被塞进更矮的内容区并向上溢出，字体度量稍有差异就会切掉字头。 -->
     <Style Selector="Menu > MenuItem">
       <Setter Property="Foreground" Value="{DynamicResource MenuForeground}" />
       <Setter Property="Background" Value="Transparent" />
@@ -123,7 +125,7 @@
 
   <Grid RowDefinitions="Auto,Auto,*,Auto">
     <Menu Grid.Row="0" x:Name="TopMenu"
-          Background="{DynamicResource MenuBackground}" Foreground="{DynamicResource MenuForeground}" Padding="8,4" />
+          Background="{DynamicResource MenuBackground}" Foreground="{DynamicResource MenuForeground}" Padding="8,0" />
 
     <!-- 工具条：右侧固定缩放按钮，左侧按钮可横向滚动，窗口变窄或出现对比下拉框时不会被裁掉 -->
     <DockPanel Grid.Row="1" Background="{DynamicResource ToolbarBackground}" Margin="8,4" LastChildFill="True">
