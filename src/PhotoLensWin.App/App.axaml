@@ -5,4 +5,52 @@
   <Application.Styles>
     <FluentTheme />
   </Application.Styles>
+
+  <!-- 亮/暗两套语义色：界面里不再出现硬编码色值，切换主题时全部跟着变 -->
+  <Application.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.ThemeDictionaries>
+        <ResourceDictionary x:Key="Dark">
+          <SolidColorBrush x:Key="AppBackground" Color="#0E0F10" />
+          <SolidColorBrush x:Key="MenuBackground" Color="#1F2124" />
+          <SolidColorBrush x:Key="MenuForeground" Color="#E5E7EB" />
+          <SolidColorBrush x:Key="MenuHover" Color="#2A2D31" />
+          <SolidColorBrush x:Key="ToolbarBackground" Color="#181A1D" />
+          <SolidColorBrush x:Key="DividerBackground" Color="#24282C" />
+          <SolidColorBrush x:Key="StatusBackground" Color="#101214" />
+          <SolidColorBrush x:Key="BarForeground" Color="#C9CDD2" />
+          <SolidColorBrush x:Key="HintForeground" Color="#B7BDC4" />
+          <SolidColorBrush x:Key="CardBackground" Color="#16181A" />
+          <SolidColorBrush x:Key="CardBorder" Color="#2A2D30" />
+          <SolidColorBrush x:Key="CardSelectedBackground" Color="#225C99FF" />
+          <SolidColorBrush x:Key="CardSelectedBorder" Color="#5C99FF" />
+          <SolidColorBrush x:Key="InfoPanelBackground" Color="#B016181B" />
+          <SolidColorBrush x:Key="InfoForeground" Color="#D6DADF" />
+          <SolidColorBrush x:Key="ToolHover" Color="#2A2D31" />
+          <SolidColorBrush x:Key="ToggleOn" Color="#2E5C99" />
+          <SolidColorBrush x:Key="ToggleOnHover" Color="#3A6FB5" />
+        </ResourceDictionary>
+        <ResourceDictionary x:Key="Light">
+          <SolidColorBrush x:Key="AppBackground" Color="#F4F5F7" />
+          <SolidColorBrush x:Key="MenuBackground" Color="#FFFFFF" />
+          <SolidColorBrush x:Key="MenuForeground" Color="#1F2328" />
+          <SolidColorBrush x:Key="MenuHover" Color="#E9ECEF" />
+          <SolidColorBrush x:Key="ToolbarBackground" Color="#ECEEF1" />
+          <SolidColorBrush x:Key="DividerBackground" Color="#D6DAE0" />
+          <SolidColorBrush x:Key="StatusBackground" Color="#E8EAED" />
+          <SolidColorBrush x:Key="BarForeground" Color="#4B5563" />
+          <SolidColorBrush x:Key="HintForeground" Color="#6B7280" />
+          <SolidColorBrush x:Key="CardBackground" Color="#FFFFFF" />
+          <SolidColorBrush x:Key="CardBorder" Color="#D6DAE0" />
+          <SolidColorBrush x:Key="CardSelectedBackground" Color="#2266A8E8" />
+          <SolidColorBrush x:Key="CardSelectedBorder" Color="#2E86DE" />
+          <SolidColorBrush x:Key="InfoPanelBackground" Color="#E6FFFFFF" />
+          <SolidColorBrush x:Key="InfoForeground" Color="#30363D" />
+          <SolidColorBrush x:Key="ToolHover" Color="#DFE3E8" />
+          <SolidColorBrush x:Key="ToggleOn" Color="#2E5C99" />
+          <SolidColorBrush x:Key="ToggleOnHover" Color="#3A6FB5" />
+        </ResourceDictionary>
+      </ResourceDictionary.ThemeDictionaries>
+    </ResourceDictionary>
+  </Application.Resources>
 </Application>

@@ -9,28 +9,48 @@ public class ViewTransformTests
         new(viewW, viewH, imgW, imgH);
 
     [Fact]
-    public void FitScale_CapsAtOne_ForSmallImages()
+    public void FitScale_UpscalesSmallImages_LikeSystemPreview()
     {
+        // 对齐 Mac 版：小图也放大铺满可用区域（不受 1 倍上限约束）
         var t = Make(800, 600, 100, 100);
-        Assert.Equal(1, t.FitScale, precision: 6); // 不放大糊化
+        Assert.Equal((600 - 2 * ViewTransform.FitPadding) / 100.0, t.FitScale, precision: 6);
     }
 
     [Fact]
     public void FitScale_LeavesPadding_OnBothSides()
     {
-        // 视口 800×600，图片 800×600：FitPadding=6 → 可用区 788×588 → min(788/800, 588/600)
+        // 视口 800×600、图片 800×600：可用区要扣掉四周 FitPadding，避免把常量硬编码进断言
         var t = Make(800, 600, 800, 600);
-        Assert.Equal(588.0 / 600.0, t.FitScale, precision: 6);
+        double expected = (600 - 2 * ViewTransform.FitPadding) / 600.0;
+        Assert.Equal(expected, t.FitScale, precision: 6);
+
+        // 等比缩放后只有"受限边"的留白等于 FitPadding，另一侧会按比例多留一点
+        t.Fit();
+        var r = t.ImageRect;
+        Assert.Equal(ViewTransform.FitPadding, r.Y, precision: 6);
+        Assert.Equal(600 - 2 * ViewTransform.FitPadding, r.Height, precision: 6);
+        Assert.Equal((800 - 800 * expected) / 2, r.X, precision: 6);
+        Assert.Equal(800 * expected, r.Width, precision: 6);
+        Assert.True(r.X >= ViewTransform.FitPadding);
     }
 
     [Fact]
     public void Fit_CentersAndResetsOffset()
     {
         var t = Make(100, 100, 50, 50);
-        t.Pan(30, 30);
+        t.ZoomTo(3, 50, 50);   // 放大到超出视口，平移才有空间
+        t.Pan(5, 5);           // 制造非零偏移
+        Assert.NotEqual(0, t.ImageRect.X, 3); // 先确认偏移真的生效，否则下面的重置断言没有意义
         t.Fit();
-        Assert.Equal(1, t.Scale, precision: 6);
-        Assert.Equal((25.0, 25.0, 50.0, 50.0), t.ImageRect);
+        // 50×50 的小图会放大到铺满可用区：scale = (100 - 2*padding) / 50
+        double scale = (100 - 2 * ViewTransform.FitPadding) / 50.0;
+        Assert.Equal(scale, t.Scale, precision: 6);
+        var r = t.ImageRect;
+        double expectedSide = 50 * scale;
+        Assert.Equal(expectedSide, r.Width, precision: 6);
+        Assert.Equal(expectedSide, r.Height, precision: 6);
+        Assert.Equal(50 - expectedSide / 2, r.X, precision: 6);
+        Assert.Equal(50 - expectedSide / 2, r.Y, precision: 6);
     }
 
     [Fact]

@@ -67,7 +67,7 @@ dotnet publish src/PhotoLensWin.App -c Release -r win-x64 --self-contained true 
 # 产物：dist/win-x64/PhotoLensWin.App.exe
 ```
 
-- `--self-contained false` 可得到依赖框架的小体积版本（目标机需装 .NET 7 Desktop Runtime）
+- `--self-contained false` 可得到依赖框架的小体积版本（目标机需装 .NET 9 Desktop Runtime）
 - 若需 win-arm64，将 RID 换为 `win-arm64`
 
 ### 自验快照模式（开发用）

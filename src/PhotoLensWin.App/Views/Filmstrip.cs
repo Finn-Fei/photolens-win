@@ -7,6 +7,7 @@ using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
+using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using PhotoLensWin.App.Services;
@@ -40,6 +41,10 @@ public class Filmstrip : Border
 
     public ImageEntry? Selected { get; private set; }
 
+    /// <summary>该缩略图位图是否仍被某个条目显示中（供缓存淘汰时保护）。</summary>
+    public bool IsThumbnailInUse(Bitmap bitmap) =>
+        _items.Any(i => ReferenceEquals(i.Thumbnail, bitmap));
+
     public ThumbnailStore Store { get; set; } = new();
 
     public Filmstrip()
@@ -70,22 +75,33 @@ public class Filmstrip : Border
         }
 
         Selected = null;
-        var target = selectedPath is null ? null : _items.FirstOrDefault(i => i.Entry.FullPath == selectedPath);
+        var target = selectedPath is null ? null : _items.FirstOrDefault(i =>
+            string.Equals(i.Entry.FullPath, selectedPath, StringComparison.OrdinalIgnoreCase));
         if (target is not null)
         {
             Select(target, scrollIntoView: false, notify: false);
         }
     }
 
-    public void ScrollToSelection()
+    /// <summary>外部切换当前图（方向键/拖入预览）时同步选中态与滚动位置。
+    /// notify:false —— 不回调宿主，避免"宿主改选中 → 列表回调宿主"的递归。</summary>
+    public void SelectPath(string fullPath, bool scrollIntoView)
     {
-        var item = _items.FirstOrDefault(i => ReferenceEquals(i.Entry, Selected));
-        if (item is null) return;
-        // Post 一帧让 ScrollViewer 重新 layout 后再滚动
-        Dispatcher.UIThread.Post(() =>
+        var target = _items.FirstOrDefault(i =>
+            string.Equals(i.Entry.FullPath, fullPath, StringComparison.OrdinalIgnoreCase));
+        if (target is null) return;
+
+        bool same = Selected is not null
+            && string.Equals(Selected.FullPath, target.Entry.FullPath, StringComparison.OrdinalIgnoreCase);
+        if (same)
         {
-            try { item.BringIntoView(); } catch { }
-        }, DispatcherPriority.Loaded);
+            if (scrollIntoView)
+            {
+                try { target.BringIntoView(); } catch { }
+            }
+            return;
+        }
+        Select(target, scrollIntoView: scrollIntoView, notify: false);
     }
 
     public void RefreshSelectionBorder()
@@ -168,10 +184,6 @@ public class Filmstrip : Border
 
     private sealed class FilmItem : Border
     {
-        private static readonly IBrush IdleBrush = new SolidColorBrush(Color.Parse("#16181A"));
-        private static readonly IBrush SelectedBrush = new SolidColorBrush(Color.Parse("#225C99FF"));
-        private static readonly IBrush IdleBorderBrush = new SolidColorBrush(Color.Parse("#2A2D30"));
-        private static readonly IBrush SelectedBorderBrush = new SolidColorBrush(Color.Parse("#5C99FF"));
 
         private readonly Image _thumb = new() { Stretch = Stretch.Uniform, HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center, VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center };
         private readonly ThumbnailStore _thumbs;
@@ -183,24 +195,28 @@ public class Filmstrip : Border
             Entry = entry;
             _thumbs = thumbs;
             _highPriority = highPriority;
-            // 固定宽度 + 自适应高度：竖图自然变高，横图自然变扁，完整显示无黑边
-            Width = 200;
+            // 宽度随胶片栏列宽自适应：列拖窄时缩略图跟着缩，而不是被裁掉两边
+            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch;
             MinHeight = 60;
             MaxHeight = 180;
             CornerRadius = new CornerRadius(8);
             Margin = new Thickness(0, 0, 0, 10);
             Padding = new Thickness(0);
+            // 配色交给 Border.filmItem / Border.filmItem.selected 样式，亮暗主题都能跟随
+            Classes.Add("filmItem");
             SetSelected(false);
             Child = _thumb;
         }
 
         public ImageEntry Entry { get; }
 
+        /// <summary>当前显示的缩略图位图，用于缓存淘汰时判断该图是否还在屏幕上。</summary>
+        public Bitmap? Thumbnail => _thumb.Source as Bitmap;
+
         public void SetSelected(bool selected)
         {
-            Background = selected ? SelectedBrush : IdleBrush;
-            BorderBrush = selected ? SelectedBorderBrush : IdleBorderBrush;
-            BorderThickness = new Thickness(selected ? 2 : 1);
+            if (selected) Classes.Add("selected");
+            else Classes.Remove("selected");
         }
 
         public void Detach()

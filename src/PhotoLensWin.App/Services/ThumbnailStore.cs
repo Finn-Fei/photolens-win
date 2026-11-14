@@ -70,6 +70,9 @@ public sealed class ThumbnailStore : IDisposable
         }
     }
 
+    /// <summary>由宿主注入：返回 true 的位图当前仍显示在界面上，淘汰时必须跳过，否则会释放正在渲染的位图。</summary>
+    public Func<Bitmap, bool>? IsProtected { get; set; }
+
     /// <summary>LRU 淘汰：按 LastAccessTime 最旧的先删。</summary>
     private void EvictIfNeeded()
     {
@@ -80,6 +83,7 @@ public sealed class ThumbnailStore : IDisposable
             foreach (var (key, entry) in _cache)
             {
                 if (entry.Bitmap is null) continue;
+                if (IsProtected?.Invoke(entry.Bitmap) == true) continue;
                 if (entry.LastAccessTime < oldestTime)
                 {
                     oldestTime = entry.LastAccessTime;

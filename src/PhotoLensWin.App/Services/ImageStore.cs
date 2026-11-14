@@ -24,6 +24,11 @@ public sealed class ImageStore
     public FullImage? Get(string path) =>
         _cache.TryGetValue(path, out var hit) ? hit.Image : null;
 
+    /// <summary>从缓存摘除并返回实例（由调用方决定何时释放）。
+    /// 文件被删除/替换时必须走这里，否则缓存里会留下已释放的位图，后续 Get 会取到死对象。</summary>
+    public FullImage? Remove(string path) =>
+        _cache.TryRemove(path, out var hit) ? hit.Image : null;
+
     /// <summary>正在显示的图（主图/对比图）由宿主标记，淘汰时跳过并保持存活。</summary>
     public Func<FullImage, bool>? IsProtected { get; set; }
 
@@ -119,8 +124,8 @@ public sealed class ImageStore
         try
         {
             double ratio = Math.Min(1.0, 320.0 / Math.Max(bitmap.Width, bitmap.Height));
-            int sw = Math.Max(1, (int)(bitmap.Width * ratio));
-            int sh = Math.Max(1, (int)(bitmap.Height * ratio));
+            int sw = Math.Max(16, (int)(bitmap.Width * ratio));
+            int sh = Math.Max(16, (int)(bitmap.Height * ratio));
             var info = new SKImageInfo(sw, sh, SKColorType.Bgra8888, SKAlphaType.Premul);
             using var small = new SKBitmap(info);
             using var paint = new SKPaint { FilterQuality = SKFilterQuality.High };
@@ -133,7 +138,9 @@ public sealed class ImageStore
                     paint);
             }
             byte[] pixels = small.Bytes;
-            return QualityScorer.AssessQuality(sw, sh, pixels, PixelOrder.Bgra);
+            // 分辨率分要用原图尺寸，像素统计才用缩小后的缓冲
+            return QualityScorer.AssessQuality(
+                bitmap.Width, bitmap.Height, pixels, PixelOrder.Bgra, sw, sh);
         }
         catch
         {

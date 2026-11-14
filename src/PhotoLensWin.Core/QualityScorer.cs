@@ -43,8 +43,15 @@ public static class QualityScorer
     private const int StatsMaxSide = 320;
 
     public static QualityReport AssessQuality(int width, int height, byte[] pixels, PixelOrder order = PixelOrder.Rgba)
+        => AssessQuality(width, height, pixels, order, width, height);
+
+    /// <summary>
+    /// 像素统计用缩小后的缓冲，分辨率分必须用原图尺寸——否则高分辨率图会被判成低分。
+    /// </summary>
+    public static QualityReport AssessQuality(
+        int imageWidth, int imageHeight, byte[] pixels, PixelOrder order, int pixelWidth, int pixelHeight)
     {
-        double minSide = Math.Min(width, height);
+        double minSide = Math.Min(imageWidth, imageHeight);
         double resolutionScore = Math.Min(10.0, minSide / 1600.0 * 10.0);
 
         double contrastScore = 5.0;
@@ -52,12 +59,13 @@ public static class QualityScorer
         double sharpnessScore = 5.0;
         double colorScore = 5.0;
 
-        var stats = PixelStatistics(width, height, pixels, order);
+        var stats = PixelStatistics(pixelWidth, pixelHeight, pixels, order);
         if (stats is not null)
         {
             double std = stats.Value.Std;
+            // 高光侧封顶 4 分：白底产品图、文档扫描、雪景的大面积高光不该把曝光直接判成 0
             exposureScore = Math.Clamp(
-                10 - Math.Max(0, stats.Value.ClippedHigh - 0.005) * 120
+                10 - Math.Min(4.0, Math.Max(0, stats.Value.ClippedHigh - 0.02) * 40)
                   - Math.Max(0, stats.Value.ClippedLow - 0.08) * 40,
                 0, 10);
             contrastScore = Math.Clamp(10 - Math.Abs(std - 50) / 6, 0, 10);
@@ -81,7 +89,7 @@ public static class QualityScorer
     private static (double Std, double ClippedHigh, double ClippedLow, double LaplacianVariance, double Saturation)?
         PixelStatistics(int width, int height, byte[] pixels, PixelOrder order)
     {
-        if (width <= 0 || height <= 0 || pixels.Length < width * height * 4) return null;
+        if (width <= 0 || height <= 0 || pixels.LongLength < (long)width * height * 4) return null;
 
         // 缩到最长边 320px 后统计亮度/对比/锐度/饱和度，避免在大图上做全量计算
         double ratio = Math.Min(1.0, StatsMaxSide / (double)Math.Max(width, height));
@@ -89,7 +97,9 @@ public static class QualityScorer
         int h = Math.Max(16, (int)(height * ratio));
 
         var luminance = new double[w * h];
+        var visible = new bool[w * h];
         double saturationSum = 0;
+        int visibleCount = 0;
         int clipped = 0;
         int crushed = 0;
 
@@ -101,6 +111,8 @@ public static class QualityScorer
             {
                 int srcX = Math.Min(width - 1, (int)(x * (double)width / w));
                 int offset = (srcY * width + srcX) * 4;
+                // 透明像素不参与任何统计：去背人像、图标的透明区不是「死黑」
+                if (pixels[offset + 3] < 26) continue;
                 double r, g, b;
                 if (order == PixelOrder.Rgba)
                 {
@@ -111,7 +123,10 @@ public static class QualityScorer
                     b = pixels[offset]; g = pixels[offset + 1]; r = pixels[offset + 2];
                 }
                 double luma = 0.299 * r + 0.587 * g + 0.114 * b;
-                luminance[y * w + x] = luma;
+                int index = y * w + x;
+                luminance[index] = luma;
+                visible[index] = true;
+                visibleCount++;
                 double maxChannel = Math.Max(r, Math.Max(g, b));
                 double minChannel = Math.Min(r, Math.Min(g, b));
                 if (maxChannel > 10) saturationSum += (maxChannel - minChannel) / maxChannel;
@@ -120,13 +135,22 @@ public static class QualityScorer
             }
         }
 
-        int count = luminance.Length;
+        if (visibleCount == 0) return null;
+        double count = visibleCount;
+
         double mean = 0;
-        foreach (var v in luminance) mean += v;
+        for (int i = 0; i < luminance.Length; i++)
+        {
+            if (visible[i]) mean += luminance[i];
+        }
         mean /= count;
 
         double variance = 0;
-        foreach (var v in luminance) variance += (v - mean) * (v - mean);
+        for (int i = 0; i < luminance.Length; i++)
+        {
+            if (!visible[i]) continue;
+            variance += (luminance[i] - mean) * (luminance[i] - mean);
+        }
         variance /= count;
 
         double laplacianSum = 0;
@@ -139,6 +163,9 @@ public static class QualityScorer
                 for (int x = 1; x < w - 1; x++)
                 {
                     int index = y * w + x;
+                    // 只有中心与四邻都不透明时才参与锐度统计，避免透明边界被当成边缘
+                    if (!visible[index] || !visible[index - 1] || !visible[index + 1]
+                        || !visible[index - w] || !visible[index + w]) continue;
                     double value = 4 * luminance[index]
                         - luminance[index - 1] - luminance[index + 1]
                         - luminance[index - w] - luminance[index + w];
@@ -154,8 +181,8 @@ public static class QualityScorer
             : 0;
 
         return (Math.Sqrt(Math.Max(0, variance)),
-                (double)clipped / count,
-                (double)crushed / count,
+                clipped / count,
+                crushed / count,
                 laplacianVariance,
                 saturationSum / count);
     }

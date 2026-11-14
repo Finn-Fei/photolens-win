@@ -44,12 +44,16 @@ public partial class MainWindow : Window
     private int _loadVersion;
     private bool _rebuildingPicker;
     private bool _slideshowOn;
+    /// <summary>用户拖好的胶片栏宽度，隐藏/显示时保持。</summary>
+    private double _stripWidth = 232;
 
     public MainWindow()
     {
         InitializeComponent();
-        Icon = new WindowIcon(GenerateAppIcon());
+        if (GenerateAppIcon() is { } icon) Icon = new WindowIcon(icon);
         Strip.Store = _thumbs;
+        // 淘汰缩略图时跳过仍在屏幕上的图，否则会释放正被渲染的位图
+        _thumbs.IsProtected = Strip.IsThumbnailInUse;
         WireControls();
         ApplyColumnConstraints();
         _toastTimer.Tick += (_, _) => ResetHint();
@@ -71,30 +75,39 @@ public partial class MainWindow : Window
     protected override async void OnOpened(EventArgs e)
     {
         base.OnOpened(e);
-        _settings = SettingsStore.Load();
-        _sort = PhotoSortExtensions.FromName(_settings.SortRule) ?? PhotoSort.NameAscending;
-        _showStrip = _settings.ShowFilmstrip;
-        ApplyListVisibility();
-        UpdateSortButton();
-        ApplyTheme(_settings.Theme);
-        RestoreWindowBounds();
-
-        var args = Environment.GetCommandLineArgs().Skip(1).Where(a => !a.StartsWith('-')).ToArray();
-        var snapshotPath = Environment.GetEnvironmentVariable("PHOTOLENS_SNAPSHOT");
-        var snapshotFolder = Environment.GetEnvironmentVariable("PHOTOLENS_SNAPSHOT_FOLDER");
-
-        if (args.Length > 0)
+        try
         {
-            LoadFromPaths(args);
+            _settings = SettingsStore.Load();
+            _sort = PhotoSortExtensions.FromName(_settings.SortRule) ?? PhotoSort.NameAscending;
+            _showStrip = _settings.ShowFilmstrip;
+            ApplyListVisibility();
+            UpdateSortButton();
+            ApplyTheme(_settings.Theme);
+            RestoreWindowBounds();
+
+            var args = Environment.GetCommandLineArgs().Skip(1).Where(a => !a.StartsWith('-')).ToArray();
+            var snapshotPath = Environment.GetEnvironmentVariable("PHOTOLENS_SNAPSHOT");
+            var snapshotFolder = Environment.GetEnvironmentVariable("PHOTOLENS_SNAPSHOT_FOLDER");
+
+            if (args.Length > 0)
+            {
+                LoadFromPaths(args);
+            }
+            else if (!string.IsNullOrEmpty(_settings.LastFolder) && Directory.Exists(_settings.LastFolder))
+            {
+                LoadFolder(_settings.LastFolder);
+            }
+
+            if (snapshotPath is not null)
+            {
+                await RunSelfCheckSnapshotAsync(snapshotPath, snapshotFolder);
+            }
         }
-        else if (!string.IsNullOrEmpty(_settings.LastFolder) && Directory.Exists(_settings.LastFolder))
+        catch (Exception ex)
         {
-            LoadFolder(_settings.LastFolder);
-        }
-
-        if (snapshotPath is not null)
-        {
-            await RunSelfCheckSnapshotAsync(snapshotPath, snapshotFolder);
+            // async void 里未捕获的异常会直接结束进程，必须在这里兜住
+            LogError("OnOpened failed: " + ex);
+            ShowToast("启动时出错：" + ex.Message);
         }
     }
 
@@ -234,7 +247,7 @@ public partial class MainWindow : Window
 
         Strip.SelectionChanged += entry =>
         {
-            int index = _images.FindIndex(e => ReferenceEquals(e, entry) || e.FullPath == entry.FullPath);
+            int index = _images.FindIndex(e => ReferenceEquals(e, entry) || PathEquals(e.FullPath, entry.FullPath));
             if (index >= 0) SelectIndex(index);
         };
         ComparePicker.SelectionChanged += OnComparePicked;
@@ -398,7 +411,11 @@ public partial class MainWindow : Window
         if (version != _loadVersion) return;
         if (collected.Count == 0)
         {
-            ShowToast("没有找到可显示的图片");
+            // 空文件夹必须清空界面，否则主图/文件名/序号还挂着上一个文件夹的内容，看起来像没响应
+            _images = new List<ImageEntry>();
+            Strip.SetItems(_images, null, scrollIntoView: false);
+            ShowEmpty();
+            ShowToast("这个文件夹里没有可显示的图片");
             return;
         }
         PresentList(collected, currentPath);
@@ -411,11 +428,11 @@ public partial class MainWindow : Window
         Strip.SetItems(_images, startIndex >= 0 ? _images[startIndex].FullPath : null, scrollIntoView: false);
         RebuildComparePicker();
         if (_compareOn && _comparePath is not null &&
-            _images.All(i => i.FullPath != _comparePath))
+            !_images.Any(i => PathEquals(i.FullPath, _comparePath)))
         {
             _comparePath = null;
             ComparePicker.SelectedIndex = -1;
-            CompareViewer.ShowMessage("在下方列表中选择一张图片进行对比");
+            CompareViewer.ShowMessage("从上方下拉框选择对比图，或把缩略图拖到这里");
         }
         SelectIndex(startIndex, scrollStrip: false);
     }
@@ -477,7 +494,7 @@ public partial class MainWindow : Window
 
         _ = LoadAndPresentAsync(entry);
 
-        if (_compareOn && (_comparePath is null || _comparePath == entry.FullPath))
+        if (_compareOn && (_comparePath is null || PathEquals(_comparePath, entry.FullPath)))
         {
             int candidate = index + 1 < _images.Count ? index + 1 : index - 1;
             if (candidate >= 0 && candidate < _images.Count)
@@ -489,7 +506,7 @@ public partial class MainWindow : Window
         _thumbs.Prefetch(_images[(index + 1) % _images.Count].FullPath);
         _thumbs.Prefetch(_images[(index - 1 + _images.Count) % _images.Count].FullPath);
 
-        if (scrollStrip) Strip.ScrollToSelection();
+        Strip.SelectPath(entry.FullPath, scrollIntoView: scrollStrip);
         MainViewer.SetArrows(CanStep(-1), CanStep(1));
         if (_infoOn) RefreshInfo();
     }
@@ -525,7 +542,7 @@ public partial class MainWindow : Window
 
     private bool IsStillCurrent(ImageEntry entry) =>
         _currentIndex >= 0 && _currentIndex < _images.Count
-        && _images[_currentIndex].FullPath == entry.FullPath;
+        && PathEquals(_images[_currentIndex].FullPath, entry.FullPath);
 
     private void PresentCurrent(FullImage image)
     {
@@ -650,7 +667,7 @@ public partial class MainWindow : Window
             _comparePath = path;
             if (updatePicker)
             {
-                int index = _images.FindIndex(i => i.FullPath == path);
+                int index = _images.FindIndex(i => PathEquals(i.FullPath, path));
                 ComparePicker.SelectedIndex = index;
             }
             _ = PresentCompareAsync(path);
@@ -690,15 +707,20 @@ public partial class MainWindow : Window
         }
     }
 
-    private bool IsCurrentCompare(string path) => _compareOn && _comparePath == path;
+    private bool IsCurrentCompare(string path) => _compareOn && PathEquals(_comparePath, path);
 
     private void HandleCompareDrop(string[] paths)
     {
-        if (!_compareOn) return;
+        if (!_compareOn || paths.Length == 0) return;
+        _ = HandleCompareDropAsync(paths);
+    }
+
+    private async Task HandleCompareDropAsync(string[] paths)
+    {
         try
         {
-            if (paths.Length == 0) { ShowToast("未获取到拖入的路径"); return; }
-            var files = ImageCatalog.CollectFromPaths(paths);
+            // 目录展开可能很慢，放后台线程，避免拖入大文件夹时 UI 假死
+            var files = await Task.Run(() => ImageCatalog.CollectFromPaths(paths));
             if (files.Count == 0)
             {
                 ShowToast("没有找到可对比的图片");
@@ -717,34 +739,50 @@ public partial class MainWindow : Window
     private void HandleMainDrop(string[] paths)
     {
         if (paths.Length == 0) return;
-        var files = ImageCatalog.CollectFromPaths(paths);
-        if (files.Count == 0) { ShowToast("没有找到可显示的图片"); return; }
+        _ = HandleMainDropAsync(paths);
+    }
 
-        string targetPath = files[0].FullPath;
-        int idx = _images.FindIndex(i => i.FullPath == targetPath);
-        if (idx >= 0)
+    private async Task HandleMainDropAsync(string[] paths)
+    {
+        try
         {
-            SelectIndex(idx);
+            var files = await Task.Run(() => ImageCatalog.CollectFromPaths(paths));
+            if (files.Count == 0) { ShowToast("没有找到可显示的图片"); return; }
+
+            string targetPath = files[0].FullPath;
+            int idx = _images.FindIndex(i => PathEquals(i.FullPath, targetPath));
+            if (idx >= 0) SelectIndex(idx);
+            else await LoadAndDropInAsync(targetPath);
         }
-        else
+        catch (Exception ex)
         {
-            _ = LoadAndDropInAsync(targetPath);
+            ShowToast($"拖入失败：{ex.Message}");
         }
     }
 
     private async Task LoadAndDropInAsync(string path)
     {
-        var loaded = await ImageStore.LoadAsync(path);
-        if (loaded is null)
+        try
         {
-            ShowToast("无法解码 " + Path.GetFileName(path));
-            return;
+            var loaded = await ImageStore.LoadAsync(path);
+            if (loaded is null)
+            {
+                ShowToast("无法解码 " + Path.GetFileName(path));
+                return;
+            }
+            _imageStore.Put(loaded);
+            // 必须登记为当前图：删除/另存为/复制都按 _current 定位，
+            // 否则拖入预览后这些操作会作用到列表里上一张图上（误删真实文件）。
+            _current = loaded;
+            MainViewer.Present(loaded);
+            NameLabel.Text = Path.GetFileName(path);
+            IndexLabel.Text = "拖入预览";
+            if (_infoOn) RefreshInfo();
         }
-        _imageStore.Put(loaded);
-        MainViewer.Present(loaded);
-        NameLabel.Text = Path.GetFileName(path);
-        IndexLabel.Text = "拖入预览";
-        if (_infoOn) RefreshInfo();
+        catch (Exception ex)
+        {
+            ShowToast($"无法显示 {Path.GetFileName(path)}：{ex.Message}");
+        }
     }
 
     private void RebuildComparePicker()
@@ -761,7 +799,7 @@ public partial class MainWindow : Window
             ComparePicker.ItemsSource = _images;
             if (_comparePath is not null)
             {
-                int index = _images.FindIndex(i => i.FullPath == _comparePath);
+                int index = _images.FindIndex(i => PathEquals(i.FullPath, _comparePath));
                 ComparePicker.SelectedIndex = index;
                 if (index < 0) ComparePicker.SelectedIndex = -1;
             }
@@ -795,7 +833,23 @@ public partial class MainWindow : Window
         }
         var image = _current;
         var lines = new List<string>();
-        lines.AddRange(image.Quality.Lines);
+
+        // 评分条目按两列排版：原来一行塞 5 项，窄面板里会被拆得断词
+        var items = image.Quality.Items;
+        if (items.Length == 0)
+        {
+            lines.Add("画质评分 不可用");
+        }
+        else
+        {
+            lines.Add($"画质评分 {image.Quality.Score:F1} / 10");
+            for (int i = 0; i < items.Length; i += 2)
+            {
+                string left = $"{items[i].Name} {items[i].Score:F1}";
+                string right = i + 1 < items.Length ? $"    {items[i + 1].Name} {items[i + 1].Score:F1}" : "";
+                lines.Add("  " + left + right);
+            }
+        }
         lines.Add("");
         // 用解码时预缓存的 directories，避免重复磁盘读取
         lines.AddRange(ExifLines.Build(image.Path, image.PixelWidth, image.PixelHeight, image.ModifiedUtc, image.CachedDirectories));
@@ -823,11 +877,16 @@ public partial class MainWindow : Window
         if (_showStrip)
         {
             grid.ColumnDefinitions = new ColumnDefinitions("232,Auto,1*");
+            if (grid.ColumnDefinitions[0].Width.Value >= 120)
+                grid.ColumnDefinitions[0].Width = new GridLength(_stripWidth);
             ApplyColumnConstraints();
             BtnList.Content = "隐藏列表";
         }
         else
         {
+            // 记住用户拖好的宽度，重新显示时不要跳回默认值
+            if (grid.ColumnDefinitions.Count > 0 && grid.ColumnDefinitions[0].ActualWidth >= 120)
+                _stripWidth = grid.ColumnDefinitions[0].ActualWidth;
             grid.ColumnDefinitions = new ColumnDefinitions("0,0,1*");
             BtnList.Content = "显示列表";
         }
@@ -860,16 +919,11 @@ public partial class MainWindow : Window
     /// <summary>适合窗口/实际大小按钮激活态：IsFitted 决定哪个高亮</summary>
     private void UpdateFitButtonState()
     {
-        if (MainViewer.IsFitted)
-        {
-            BtnFit.Classes.Add("toggleOn");
-            BtnActual.Classes.Remove("toggleOn");
-        }
-        else
-        {
-            BtnFit.Classes.Remove("toggleOn");
-            BtnActual.Classes.Add("toggleOn");
-        }
+        // 只有真正处在 100% 才点亮"实际大小"；滚动缩放到 37% 之类不应算激活
+        bool isActual = !MainViewer.IsFitted && Math.Abs(MainViewer.Scale - 1.0) < 1e-3;
+        bool isFit = MainViewer.IsFitted;
+        if (isFit) BtnFit.Classes.Add("toggleOn"); else BtnFit.Classes.Remove("toggleOn");
+        if (isActual) BtnActual.Classes.Add("toggleOn"); else BtnActual.Classes.Remove("toggleOn");
     }
 
     // MARK: 键盘
@@ -909,7 +963,9 @@ public partial class MainWindow : Window
                 {
                     WindowState = WindowState.Normal;
                     e.Handled = true;
+                    break;
                 }
+                if (_compareOn) { ToggleCompare(); e.Handled = true; }
                 break;
         }
     }
@@ -1099,6 +1155,9 @@ public partial class MainWindow : Window
     {
         if (_current is null || string.IsNullOrEmpty(_current.Path)) return;
         var path = _current.Path;
+        // 按路径定位列表行：当前画面可能是拖入的预览图，_currentIndex 并不指向它
+        int listIndex = _images.FindIndex(i => PathEquals(i.FullPath, path));
+        int versionAtStart = _loadVersion;
         bool canceled = false;
         try
         {
@@ -1111,19 +1170,33 @@ public partial class MainWindow : Window
             });
             if (canceled) return;
 
-            _images.RemoveAt(_currentIndex);
-            Strip.SetItems(_images, null, scrollIntoView: false);
-            RebuildComparePicker();
+            // 顺序很关键：先把画面从位图上摘掉，再摘缓存并释放。
+            // 反过来会在一帧渲染里用到已释放的位图（同图对比时两个视图共享同一实例，必崩）。
+            DetachImage(path);
+            _imageStore.Remove(path)?.Dispose();
 
-            _imageStore.Get(path)?.Dispose();
-            if (_images.Count > 0)
+            bool listRowStillValid = listIndex >= 0 && versionAtStart == _loadVersion
+                && listIndex < _images.Count && PathEquals(_images[listIndex].FullPath, path);
+
+            if (listRowStillValid)
             {
-                int next = Math.Min(_currentIndex, _images.Count - 1);
-                SelectIndex(next);
+                _images.RemoveAt(listIndex);
+                if (_comparePath is not null && PathEquals(_comparePath, path)) _comparePath = null;
+                Strip.SetItems(_images, null, scrollIntoView: false);
+                RebuildComparePicker();
+                if (_images.Count > 0) SelectIndex(Math.Min(listIndex, _images.Count - 1));
+                else ShowEmpty();
             }
             else
             {
-                ShowEmpty();
+                // 拖入预览图，或列表在确认框期间已被切换：只删文件，不动当前列表
+                if (_comparePath is not null && PathEquals(_comparePath, path))
+                {
+                    _comparePath = null;
+                    RebuildComparePicker();
+                }
+                if (_images.Count > 0 && _currentIndex >= 0 && _currentIndex < _images.Count)
+                    SelectIndex(_currentIndex);
             }
             ShowToast("已移到回收站：" + Path.GetFileName(path));
         }
@@ -1134,16 +1207,37 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>把指定路径从两个画布上撤下来（只清 Source，不释放位图）。</summary>
+    private void DetachImage(string path)
+    {
+        if (MainViewer.Current is { } main && PathEquals(main.Path, path))
+            MainViewer.ShowMessage("已移到回收站");
+        if (CompareViewer.Current is { } compare && PathEquals(compare.Path, path))
+            CompareViewer.ShowMessage("对比图已移除");
+        if (_current is not null && PathEquals(_current.Path, path)) _current = null;
+    }
+
+    /// <summary>Windows 路径比较统一忽略大小写，避免不同来源的大小写差异导致选中/删除错位。</summary>
+    private static bool PathEquals(string? a, string? b) =>
+        string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
+
     /// <summary>WindowIcon 从 app.png 文件读取，与 exe 的 ApplicationIcon (app.ico) 同源。
     /// 改图标只需换 app.ico + app.png 两个文件，两边自动同步。</summary>
-    private static Bitmap GenerateAppIcon()
+    private static Bitmap? GenerateAppIcon()
     {
-        var dir = Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location)!;
-        var pngPath = Path.Combine(dir, "app.png");
-        if (!File.Exists(pngPath))
-            throw new InvalidOperationException($"图标文件未找到: {pngPath}");
-        using var stream = File.OpenRead(pngPath);
-        return new Bitmap(stream);
+        // 单文件发布时 Assembly.Location 为空，必须用 AppContext.BaseDirectory
+        try
+        {
+            var pngPath = Path.Combine(AppContext.BaseDirectory, "app.png");
+            if (!File.Exists(pngPath)) return null;
+            using var stream = File.OpenRead(pngPath);
+            return new Bitmap(stream);
+        }
+        catch
+        {
+            // 图标缺失不应阻止启动（历史上有过因此白屏的情况）
+            return null;
+        }
     }
 
     /// <summary>Windows Shell API：SHFileOperation 删除到回收站。零 NuGet 依赖。</summary>

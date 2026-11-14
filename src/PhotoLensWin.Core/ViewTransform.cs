@@ -32,7 +32,7 @@ public struct ViewTransform
         OffsetY = 0;
     }
 
-    /// <summary>适合窗口的缩放比（图片比窗口小时不超过 1，避免糊化放大）</summary>
+    /// <summary>适合窗口的缩放比：小图也放大铺满可用区域（对齐 Mac 版与系统预览）。</summary>
     public double FitScale
     {
         get
@@ -42,13 +42,13 @@ public struct ViewTransform
             double availW = Math.Max(1, ViewWidth - FitPadding * 2);
             double availH = Math.Max(1, ViewHeight - FitPadding * 2);
             double scale = Math.Min(availW / ImageWidth, availH / ImageHeight);
-            return Math.Min(scale, 1);
+            return Math.Clamp(scale, MinScale, MaxScale);
         }
     }
 
     public void Fit()
     {
-        Scale = Math.Max(MinScale, FitScale);
+        Scale = FitScale;
         OffsetX = 0;
         OffsetY = 0;
     }

@@ -95,7 +95,10 @@ public static class ImageCatalog
             {
                 if (entry is DirectoryInfo sub)
                 {
-                    if (!IsHidden(sub)) CollectRecursive(sub.FullName, sink, seen);
+                    if (IsHidden(sub)) continue;
+                    // 目录联接/符号链接会形成自引用，递归下去必然 StackOverflow（不可捕获）
+                    if (IsReparsePoint(sub)) continue;
+                    CollectRecursive(sub.FullName, sink, seen);
                 }
                 else if (entry is FileInfo file
                          && !IsHidden(file)
@@ -127,6 +130,18 @@ public static class ImageCatalog
         catch
         {
             return true;
+        }
+    }
+
+    private static bool IsReparsePoint(FileSystemInfo entry)
+    {
+        try
+        {
+            return entry.Attributes.HasFlag(FileAttributes.ReparsePoint);
+        }
+        catch
+        {
+            return true; // 读不到属性时按"不要再往里走"处理，宁少收图也不递归爆栈
         }
     }
 }

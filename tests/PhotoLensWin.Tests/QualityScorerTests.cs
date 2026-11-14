@@ -14,6 +14,7 @@ public class QualityScorerTests
             pixels[i * 4] = r;
             pixels[i * 4 + 1] = g;
             pixels[i * 4 + 2] = b;
+            pixels[i * 4 + 3] = 255;
         }
         return pixels;
     }
@@ -31,6 +32,26 @@ public class QualityScorerTests
                 pixels[o] = v;
                 pixels[o + 1] = v;
                 pixels[o + 2] = v;
+                pixels[o + 3] = 255;
+            }
+        }
+        return pixels;
+    }
+
+    /// <summary>左半 / 右半两种颜色的图（按 RGBA 字节序写入）</summary>
+    private static byte[] Halves(int w, int h, (byte R, byte G, byte B) left, (byte R, byte G, byte B) right)
+    {
+        var pixels = new byte[w * h * 4];
+        for (int y = 0; y < h; y++)
+        {
+            for (int x = 0; x < w; x++)
+            {
+                var c = x < w / 2 ? left : right;
+                int o = (y * w + x) * 4;
+                pixels[o] = c.R;
+                pixels[o + 1] = c.G;
+                pixels[o + 2] = c.B;
+                pixels[o + 3] = 255;
             }
         }
         return pixels;
@@ -75,13 +96,37 @@ public class QualityScorerTests
     }
 
     [Fact]
-    public void Exposure_BlackOrWhite_ClippedToZero()
+    public void Exposure_CrushedBlackIsZero_ClippedWhiteIsCappedAtFour()
     {
+        // 暗部死黑按比例重罚：全黑 → 0
         var black = QualityScorer.AssessQuality(320, 240, Solid(320, 240, 0, 0, 0));
         Assert.Equal(0.0, Item(black, "曝光"), precision: 1);
 
+        // 高光侧封顶 4 分（Mac 版行为）：白底/雪景/文档扫描不该被判成 0
         var white = QualityScorer.AssessQuality(320, 240, Solid(320, 240, 255, 255, 255));
-        Assert.Equal(0.0, Item(white, "曝光"), precision: 1);
+        Assert.Equal(6.0, Item(white, "曝光"), precision: 1);
+    }
+
+    [Fact]
+    public void Resolution_UsesOriginalSize_NotStatsBufferSize()
+    {
+        // 传给像素统计的缓冲只有 32×24，但原图 1600×1600 → 分辨率分必须按原图算
+        var report = QualityScorer.AssessQuality(
+            1600, 1600, Solid(32, 24, 128, 128, 128), PixelOrder.Rgba, 32, 24);
+        Assert.Equal(10.0, Item(report, "分辨率"), precision: 2);
+    }
+
+    [Fact]
+    public void TransparentPixels_AreExcludedFromStatistics()
+    {
+        // 全透明图没有任何可见像素 → 像素统计不可用，其余项回退为中性 5 分，
+        // 而不是把透明区当成死黑/纯色扣分（对齐 Mac 版 alpha < 26 的过滤）。
+        var pixels = new byte[320 * 240 * 4];
+        var report = QualityScorer.AssessQuality(320, 240, pixels);
+        Assert.Equal(5.0, Item(report, "曝光"), precision: 6);
+        Assert.Equal(5.0, Item(report, "对比"), precision: 6);
+        Assert.Equal(5.0, Item(report, "锐度"), precision: 6);
+        Assert.Equal(5.0, Item(report, "色彩"), precision: 6);
     }
 
     [Fact]
@@ -95,11 +140,19 @@ public class QualityScorerTests
     }
 
     [Fact]
-    public void Contrast_FlatGrayIsLow_ReasonableSpreadIsHigh()
+    public void Contrast_PrefersMidSpread_ExtremeSpreadIsPenalized()
     {
         // 纯色图 std=0：对比分 10 - 50/6 ≈ 1.67（与 Mac 版一致）
         var flat = QualityScorer.AssessQuality(320, 240, Solid(320, 240, 128, 128, 128));
         Assert.Equal(10 - 50.0 / 6, Item(flat, "对比"), precision: 1);
+
+        // 公式 10 - |σ-50|/6 偏好"中等反差"：双色灰阶 77/179 的 σ≈51，接近满分
+        var spread = QualityScorer.AssessQuality(320, 240, Halves(320, 240, (77, 77, 77), (179, 179, 179)));
+        Assert.True(Item(spread, "对比") > 9, $"中等反差应接近满分，实际 {Item(spread, "对比")}");
+
+        // 极端反差（黑白棋盘 σ≈127.5）被公式压到 0——这是 Mac 版既有行为，显式钉住防回归
+        var extreme = QualityScorer.AssessQuality(320, 240, Checkerboard(320, 240));
+        Assert.Equal(0.0, Item(extreme, "对比"), precision: 6);
     }
 
     [Fact]
@@ -112,10 +165,19 @@ public class QualityScorerTests
     [Fact]
     public void BgraOrder_IsHandledCorrectly()
     {
-        // 纯色图两种字节序结果一致；用非对称色验证转换路径
-        var rgba = QualityScorer.AssessQuality(320, 240, Solid(320, 240, 255, 0, 0), PixelOrder.Rgba);
-        var bgra = QualityScorer.AssessQuality(320, 240, Solid(320, 240, 255, 0, 0), PixelOrder.Bgra);
-        Assert.Equal(rgba.Score, bgra.Score, precision: 6);
+        // 纯色图无法区分字节序（std/饱和度与通道顺序无关），必须用亮度分布不同的非均匀图：
+        // 左半红、右半绿，Rgba 与 Bgra 下亮度集合不同 → σ 不同 → 对比分必然不同。
+        // 若 order 参数被忽略，两者分数会完全相同，本断言即可拦截。
+        var pixels = Halves(320, 240, (255, 0, 0), (0, 255, 0));
+        var rgba = QualityScorer.AssessQuality(320, 240, pixels, PixelOrder.Rgba);
+        var bgra = QualityScorer.AssessQuality(320, 240, pixels, PixelOrder.Bgra);
+        Assert.NotEqual(rgba.Score, bgra.Score, precision: 3);
+
+        // 同色不同字节序：语义应等价（Rgba 的红/绿 == Bgra 字节序下同一组红/绿）
+        var redGreenRgba = QualityScorer.AssessQuality(320, 240, pixels, PixelOrder.Rgba);
+        var redGreenBgra = QualityScorer.AssessQuality(
+            320, 240, Halves(320, 240, (0, 0, 255), (0, 255, 0)), PixelOrder.Bgra);
+        Assert.Equal(redGreenRgba.Score, redGreenBgra.Score, precision: 6);
     }
 
     [Fact]
