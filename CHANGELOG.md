@@ -2,6 +2,23 @@
 
 版本号遵循软件正式名称，形如 `PhotoLensWin-1.0`。本文件与 [README.md](README.md) 保持同步。
 
+版本号唯一来源：根目录 `Directory.Build.props` 的 `<Version>`（csproj 与手写 AssemblyInfo 不再各自声明）。
+
+## 发布索引（版本 ↔ 提交 ↔ tag）
+
+| 版本 | 日期 | 提交 | tag |
+|---|---|---|---|
+| 1.2.6 | 2026-11-22 | `acc1db8` | `PhotoLensWin-1.2.6` |
+| 1.2.5 | 2026-11-14 | `b258a6a` | `PhotoLensWin-1.2.5` |
+| 1.2.4 | 2026-11-14 | `b18b123` | `PhotoLensWin-1.2.4` |
+| 1.2.3 | 2026-11-14 | `23b9e5e` | `PhotoLensWin-1.2.3` |
+| 1.2.2 | 2026-11-14 | `080bc3c` | `PhotoLensWin-1.2.2` |
+| 1.2.1 | 2026-11-14 | `d9262b8` | `PhotoLensWin-1.2.1` |
+| 1.2.0 | 2026-11-14 | `908a5f2` | `PhotoLensWin-1.2.0` |
+| 1.1.1 | 2026-11-12 | `5030f88` | `PhotoLensWin-1.1.1` |
+| 1.1 | 2026-11-10 | `c8a1946` | `PhotoLensWin-1.1` |
+| 1.0 | 2026-11-06 | `75d71c2` | `PhotoLensWin-1.0` |
+
 ---
 
 ## PhotoLensWin-1.2.6 — 2026-11-22
