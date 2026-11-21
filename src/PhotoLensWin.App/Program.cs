@@ -1,16 +1,22 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.IO.Pipes;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
+using System.Threading.Tasks;
 using Avalonia;
+using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Threading;
+using PhotoLensWin.App.Views;
 
 namespace PhotoLensWin.App;
 
 internal static class Program
 {
     private const string InstanceMutexName = @"Local\PhotoLensWin.App.SingleInstance";
+    private const string OpenRequestPipeName = "PhotoLensWin.OpenRequest";
 
     [STAThread]
     public static void Main(string[] args)
@@ -29,10 +35,13 @@ internal static class Program
         using var mutex = new Mutex(initiallyOwned: true, InstanceMutexName, out bool isFirstInstance);
         if (!isFirstInstance)
         {
-            Log("检测到已有实例，尝试激活窗口后退出");
-            ActivateExistingWindow();
+            Log("检测到已有实例，转发打开请求后退出");
+            // 有路径参数时先尝试转交给首实例，转交失败再退回"只激活窗口"
+            if (!TrySendOpenRequest(args)) ActivateExistingWindow();
             return;
         }
+
+        StartOpenRequestServer(Log);
 
         AppDomain.CurrentDomain.UnhandledException += (_, e) =>
             Log($"[AppDomain] {e.ExceptionObject}");
@@ -89,6 +98,69 @@ internal static class Program
     }
 
     private const int SwRestore = 9;
+
+    /// <summary>第二实例：把路径参数通过命名管道交给首实例；没有参数或不成功时返回 false。</summary>
+    private static bool TrySendOpenRequest(string[] args)
+    {
+        if (args.Length == 0) return false;
+        try
+        {
+            using var client = new NamedPipeClientStream(".", OpenRequestPipeName, PipeDirection.Out);
+            client.Connect(1500);
+            using var writer = new StreamWriter(client) { AutoFlush = true };
+            writer.Write(string.Join('\n', args));
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>首实例：监听第二实例的打开请求，收到后交给主窗口载入并激活。</summary>
+    private static void StartOpenRequestServer(Action<string> log)
+    {
+        _ = Task.Run(async () =>
+        {
+            while (true)
+            {
+                try
+                {
+                    await using var server = new NamedPipeServerStream(
+                        OpenRequestPipeName, PipeDirection.In, 1,
+                        PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
+                    await server.WaitForConnectionAsync();
+                    using var reader = new StreamReader(server);
+                    var payload = await reader.ReadToEndAsync();
+                    var paths = payload.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+                    if (paths.Length == 0) continue;
+                    log("收到外部打开请求：" + string.Join(" | ", paths));
+                    await Dispatcher.UIThread.InvokeAsync(() => DispatchOpenRequest(paths, log));
+                }
+                catch (Exception ex)
+                {
+                    log("[OpenRequest] " + ex.Message);
+                    await Task.Delay(1000);
+                }
+            }
+        });
+    }
+
+    /// <summary>首实例可能还在启动，窗口出现前先等一小会儿再载入。</summary>
+    private static async void DispatchOpenRequest(string[] paths, Action<string> log)
+    {
+        for (int i = 0; i < 30; i++)
+        {
+            if ((Application.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime)?.MainWindow
+                is MainWindow window)
+            {
+                window.OpenPathsFromExternal(paths);
+                return;
+            }
+            await Task.Delay(100);
+        }
+        log("未找到主窗口，放弃外部打开请求");
+    }
 
     [DllImport("user32.dll")]
     private static extern bool SetForegroundWindow(IntPtr hWnd);

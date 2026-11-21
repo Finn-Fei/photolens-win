@@ -21,6 +21,7 @@ namespace PhotoLensWin.App.Views;
 public class ImageViewer : Control
 {
     private const double LoupeDiameter = 150;
+    private const double LoupeZoom = 3;
 
     // 三层结构：_transformLayer（Canvas 容器，用 SetLeft/SetTop 定位）→ _layoutLayer（Image 按 Uniform 自动居中）→ Image
     private readonly Grid _root = new();
@@ -36,7 +37,8 @@ public class ImageViewer : Control
     private readonly TextBlock _message = new();
     private readonly Border _dropHighlight = new();
     private readonly Border _loupe = new();
-    private readonly Image _loupeImage = new() { Stretch = Stretch.None };
+    // 放大镜内容直接取当前渲染层做局部放大，缩放/旋转/平移后也保持一致
+    private readonly VisualBrush _loupeBrush = new() { Stretch = Stretch.Fill };
 
     private ViewTransform _transform = new();
     private bool _isFitted = true;
@@ -87,7 +89,7 @@ public class ImageViewer : Control
         _loupe.Classes.Add("loupe");
         _loupe.IsHitTestVisible = false;
         _loupe.IsVisible = false;
-        _loupe.Child = _loupeImage;
+        _loupe.Background = _loupeBrush;
 
         _layoutLayer.Child = _image;
         _transformLayer.Children.Add(_layoutLayer);
@@ -242,15 +244,20 @@ public class ImageViewer : Control
         double layoutX = _transform.ViewWidth / 2 - scaledW / 2 + _transform.OffsetX;
         double layoutY = _transform.ViewHeight / 2 - scaledH / 2 + _transform.OffsetY;
 
-        // 1. 位置 + 尺寸（Canvas 定位才能真正生效）
+        // 1. 位置按摆正后的显示尺寸计算；层盒子用「未旋转像素尺寸 × 缩放」，
+        //    保证后续旋转矩阵（平移量以像素为单位）与层坐标同一量纲。
         Canvas.SetLeft(_layoutLayer, layoutX);
         Canvas.SetTop(_layoutLayer, layoutY);
-        _layoutLayer.Width = Math.Max(0, scaledW);
-        _layoutLayer.Height = Math.Max(0, scaledH);
+        double rawW = _current?.PixelWidth ?? 0;
+        double rawH = _current?.PixelHeight ?? 0;
+        _layoutLayer.Width = Math.Max(0, rawW * _transform.Scale);
+        _layoutLayer.Height = Math.Max(0, rawH * _transform.Scale);
 
-        // 2. 旋转：EXIF + 用户旋转叠加在 layoutLayer 上
-        var rotMatrix = new Matrix(m.A, m.B, m.C, m.D, m.E, m.F);
-        _layoutLayer.RenderTransformOrigin = new RelativePoint(0.5, 0.5, RelativeUnit.Relative);
+        // 2. 旋转：EXIF + 用户旋转叠加在 layoutLayer 上；
+        //    矩阵的平移项是像素，必须同步乘 Scale，原点固定在左上角（0,0）。
+        double s = _transform.Scale;
+        var rotMatrix = new Matrix(m.A, m.B, m.C, m.D, m.E * s, m.F * s);
+        _layoutLayer.RenderTransformOrigin = new RelativePoint(0, 0, RelativeUnit.Absolute);
         _layoutLayer.RenderTransform = new MatrixTransform(rotMatrix);
     }
 
@@ -366,8 +373,25 @@ public class ImageViewer : Control
     private void UpdateLoupe()
     {
         if (_current is null || !_loupeActive) return;
-        _loupe.Margin = new Thickness(_lastPointer.X - LoupeDiameter / 2, _lastPointer.Y - LoupeDiameter / 2, 0, 0);
-        _loupeImage.Source = _image.Source;
+
+        // 圆框贴边时钳制在画布内，避免被 ClipToBounds 裁成半圆
+        double x = Math.Clamp(_lastPointer.X - LoupeDiameter / 2, 0, Math.Max(0, Bounds.Width - LoupeDiameter));
+        double y = Math.Clamp(_lastPointer.Y - LoupeDiameter / 2, 0, Math.Max(0, Bounds.Height - LoupeDiameter));
+        _loupe.Margin = new Thickness(x, y, 0, 0);
+
+        // 以光标为中心取 1/Zoom 大小的源区域，铺满圆框
+        double viewW = Math.Max(1, Bounds.Width);
+        double viewH = Math.Max(1, Bounds.Height);
+        double relW = Math.Min(1, LoupeDiameter / (viewW * LoupeZoom));
+        double relH = Math.Min(1, LoupeDiameter / (viewH * LoupeZoom));
+        double cx = Math.Clamp(_lastPointer.X / viewW, 0, 1);
+        double cy = Math.Clamp(_lastPointer.Y / viewH, 0, 1);
+        double left = Math.Clamp(cx - relW / 2, 0, 1 - relW);
+        double top = Math.Clamp(cy - relH / 2, 0, 1 - relH);
+
+        _loupeBrush.Visual = _transformLayer;
+        _loupeBrush.SourceRect = new RelativeRect(left, top, relW, relH, RelativeUnit.Relative);
+        _loupeBrush.DestinationRect = new RelativeRect(0, 0, 1, 1, RelativeUnit.Relative);
     }
 
     // MARK: 拖放

@@ -1,0 +1,13 @@
+<Project>
+
+  <!-- 版本号与程序集元数据的唯一来源：csproj 不再各自声明 Version -->
+  <PropertyGroup>
+    <Version>1.2.6</Version>
+    <Company>PhotoLens</Company>
+    <Product>PhotoLensWin</Product>
+    <AssemblyTitle>PhotoLens — Lightweight Photo Viewer</AssemblyTitle>
+    <Description>Fast, lightweight photo viewer with side-by-side comparison, filmstrip, and gesture navigation</Description>
+    <Copyright>© 2025 PhotoLens — macOS inspiration, Windows implementation</Copyright>
+  </PropertyGroup>
+
+</Project>

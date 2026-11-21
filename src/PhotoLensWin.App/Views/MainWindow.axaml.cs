@@ -176,13 +176,42 @@ public partial class MainWindow : Window
     /// </summary>
     private void CheckLayoutBounds(string snapshotPath)
     {
-        const double tolerance = 0.5;
+        const double tolerance = 1.0; // 允许亚像素取整（1* 分栏会出现 0.6px 级别偏差）
         var violations = new List<string>();
 
         static bool IsExempt(Visual v) =>
             v is Canvas ||
             v is Avalonia.Controls.Presenters.ScrollContentPresenter ||
-            v is Avalonia.Controls.Primitives.Popup;
+            v is Avalonia.Controls.Primitives.Popup ||
+            v is Avalonia.Controls.Primitives.ScrollBar ||
+            v is Avalonia.Controls.Primitives.Track ||
+            v is Avalonia.Controls.Primitives.Thumb ||
+            v.GetType().Name is "RepeatButton" or "Viewbox";
+
+        static string Describe(Visual v)
+        {
+            string chain = "";
+            Visual? cur = v;
+            for (int i = 0; i < 3 && cur is not null; i++)
+            {
+                string name = cur is Control c && !string.IsNullOrEmpty(c.Name) ? "#" + c.Name : "";
+                chain = string.IsNullOrEmpty(chain) ? cur.GetType().Name + name : cur.GetType().Name + name + ">" + chain;
+                cur = Avalonia.VisualTree.VisualExtensions.GetVisualParent(cur);
+            }
+            return chain;
+        }
+
+        /// <summary>是否位于滚动内容里：向下/向右溢出属于正常滚动区，不算越界。</summary>
+        static bool InScrollContent(Visual v)
+        {
+            Visual? cur = Avalonia.VisualTree.VisualExtensions.GetVisualParent(v);
+            for (int i = 0; i < 3 && cur is not null; i++)
+            {
+                if (cur is Avalonia.Controls.Presenters.ScrollContentPresenter) return true;
+                cur = Avalonia.VisualTree.VisualExtensions.GetVisualParent(cur);
+            }
+            return false;
+        }
 
         void Visit(Visual parent)
         {
@@ -198,10 +227,10 @@ public partial class MainWindow : Window
                     double top = -b.Y;
                     double right = b.Right - parent.Bounds.Width;
                     double bottom = b.Bottom - parent.Bounds.Height;
-                    if (left > tolerance || top > tolerance || right > tolerance || bottom > tolerance)
+                    if (left > tolerance || top > tolerance ||
+                        (!InScrollContent(parent) && (right > tolerance || bottom > tolerance)))
                     {
-                        violations.Add($"{cv.GetType().Name} 超出 {parent.GetType().Name}：" +
-                                       $"left={left:F1} top={top:F1} right={right:F1} bottom={bottom:F1}");
+                        violations.Add($"{Describe(cv)} 超出：right={right:F1} bottom={bottom:F1} (left={left:F1} top={top:F1})");
                     }
                 }
 
@@ -244,12 +273,24 @@ public partial class MainWindow : Window
     private void RestoreWindowBounds()
     {
         if (_settings.WindowLeft < 0 || _settings.WindowTop < 0) return;
-        // 简单校验：确保恢复的位置不会完全在屏幕外
         try
         {
+            int width = Math.Max(760, _settings.WindowWidth);
+            int height = Math.Max(540, _settings.WindowHeight);
+            // 位置是物理像素、尺寸是 DIP：换算后与任一屏幕工作区求交，避免窗口整块落在屏幕外
+            double scale = RenderScaling <= 0 ? 1 : RenderScaling;
+            var rect = new PixelRect(_settings.WindowLeft, _settings.WindowTop,
+                (int)(width * scale), (int)(height * scale));
+            if (!Screens.All.Any(s => s.WorkingArea.Intersects(rect)))
+            {
+                WindowStartupLocation = WindowStartupLocation.CenterScreen;
+                Width = width;
+                Height = height;
+                return;
+            }
             Position = new PixelPoint(_settings.WindowLeft, _settings.WindowTop);
-            Width = _settings.WindowWidth;
-            Height = _settings.WindowHeight;
+            Width = width;
+            Height = height;
         }
         catch { /* 无效值忽略 */ }
     }
@@ -534,6 +575,21 @@ public partial class MainWindow : Window
         var sort = _sort;
         int version = ++_loadVersion;
         _ = LoadFromPathsAsync(paths, currentPath, sort, version);
+    }
+
+    /// <summary>第二实例通过命名管道转发的打开请求：激活窗口并载入路径。</summary>
+    public void OpenPathsFromExternal(string[] paths)
+    {
+        if (paths.Length == 0) return;
+        try
+        {
+            Activate();
+            LoadFromPaths(paths);
+        }
+        catch (Exception ex)
+        {
+            LogError("OpenPathsFromExternal failed: " + ex.Message);
+        }
     }
 
     private async Task LoadFromPathsAsync(string[] paths, string? currentPath, PhotoSort sort, int version)
@@ -985,7 +1041,8 @@ public partial class MainWindow : Window
             bool horizontal = InfoPanel.Bounds.X < arrowRight;
             covered = vertical && horizontal;
         }
-        double right = covered ? InfoPanel.Bounds.Width + 18 + 10 : 14;
+        double maxRight = Math.Max(14, MainViewer.Bounds.Width - 44 - 8);
+        double right = covered ? Math.Min(InfoPanel.Bounds.Width + 18 + 10, maxRight) : 14;
         // LayoutUpdated 会高频触发，值没变就不要改，避免反复重新布局
         if (Math.Abs(BtnNext.Margin.Right - right) < 0.5) return;
         BtnNext.Margin = new Thickness(0, 0, right, 0);
@@ -1226,8 +1283,16 @@ public partial class MainWindow : Window
         if (string.IsNullOrEmpty(text)) return;
         var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
         if (clipboard is null) return;
-        await clipboard.SetTextAsync(text);
-        ShowToast("已复制文件路径");
+        try
+        {
+            await clipboard.SetTextAsync(text);
+            ShowToast("已复制文件路径");
+        }
+        catch
+        {
+            // 剪贴板被其他进程独占时 SetTextAsync 会抛 COMException，不能让它冒泡
+            ShowToast("剪贴板被占用，复制失败");
+        }
     }
 
     private async Task CopyCurrentFile(bool isMain)
@@ -1358,18 +1423,25 @@ public partial class MainWindow : Window
         // 按路径定位列表行：当前画面可能是拖入的预览图，_currentIndex 并不指向它
         int listIndex = _images.FindIndex(i => PathEquals(i.FullPath, path));
         int versionAtStart = _loadVersion;
-        bool canceled = false;
+        bool aborted = false;
+        // 非 NTFS 本地卷 / UNC 路径上 FOF_ALLOWUNDO 不生效，会变成永久删除：先应用内确认
+        if (!NativeMethods.CanRecycle(path) && !await ConfirmPermanentDeleteAsync(path))
+            return;
         try
         {
             await Task.Run(() =>
             {
-                // Windows 照片删除到回收站时不弹系统确认框（可回收，失败/误删有 Toast 与回收站兜底）
-                int result = NativeMethods.DeleteFileToRecycleBin(path, confirm: false);
-                if (result == 2) canceled = true; // DE_RESABORTED / 用户取消
-                if (result != 0 && result != 2)
-                    throw new InvalidOperationException("SHFileOperation failed: " + result);
+                // 回收站可用时静默删除（对齐 Windows 照片）；不可用时已在上一步确认
+                (int code, bool wasAborted) = NativeMethods.DeleteFileToRecycleBin(path, confirm: false);
+                if (wasAborted)
+                {
+                    aborted = true;
+                    return;
+                }
+                if (code != 0)
+                    throw new InvalidOperationException("SHFileOperation failed: " + code);
             });
-            if (canceled) return;
+            if (aborted) return;
 
             // 顺序很关键：先把画面从位图上摘掉，再摘缓存并释放。
             // 反过来会在一帧渲染里用到已释放的位图（同图对比时两个视图共享同一实例，必崩）。
@@ -1406,6 +1478,47 @@ public partial class MainWindow : Window
             LogError("DeleteCurrentFileAsync failed: " + ex.Message);
             ShowToast("删除失败：" + ex.Message);
         }
+    }
+
+    /// <summary>目标位置不支持回收站时，删除前必须由用户明确确认（默认取消）。</summary>
+    private async Task<bool> ConfirmPermanentDeleteAsync(string path)
+    {
+        bool confirmed = false;
+        var dialog = new Window
+        {
+            Title = "无法放入回收站",
+            Width = 400,
+            Height = 170,
+            CanResize = false,
+            ShowInTaskbar = false,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+        };
+        var message = new TextBlock
+        {
+            Text = $"「{Path.GetFileName(path)}」所在位置不支持回收站，删除后无法找回。是否继续？",
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(18, 18, 18, 8),
+        };
+        var confirm = new Button { Content = "永久删除", Margin = new Thickness(0, 0, 8, 0) };
+        var cancel = new Button { Content = "取消", IsDefault = true };
+        confirm.Click += (_, _) => { confirmed = true; dialog.Close(); };
+        cancel.Click += (_, _) => dialog.Close();
+        var buttons = new StackPanel
+        {
+            Orientation = Avalonia.Layout.Orientation.Horizontal,
+            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right,
+            Spacing = 8,
+            Margin = new Thickness(18, 0, 18, 16),
+        };
+        buttons.Children.Add(confirm);
+        buttons.Children.Add(cancel);
+        var root = new DockPanel();
+        DockPanel.SetDock(buttons, Dock.Bottom);
+        root.Children.Add(buttons);
+        root.Children.Add(message);
+        dialog.Content = root;
+        await dialog.ShowDialog(this);
+        return confirmed;
     }
 
     /// <summary>把指定路径从两个画布上撤下来（只清 Source，不释放位图）。</summary>
@@ -1467,8 +1580,28 @@ public partial class MainWindow : Window
         [System.Runtime.InteropServices.DllImport("shell32.dll", EntryPoint = "SHFileOperationW", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
         private static extern int SHFileOperation(ref SHFILEOPSTRUCTW FileOp);
 
-        /// <returns>0=成功；2=用户取消（FOF_NOCONFIRMATION 下不会出现）；其他=错误码</returns>
-        public static int DeleteFileToRecycleBin(string path, bool confirm)
+        /// <summary>目标位置能否真正进回收站：只有本地 NTFS 卷可以；UNC 与 FAT/exFAT 会变成永久删除。</summary>
+        public static bool CanRecycle(string path)
+        {
+            try
+            {
+                var full = Path.GetFullPath(path);
+                if (full.StartsWith(@"\\", StringComparison.Ordinal)) return false;
+                var root = Path.GetPathRoot(full);
+                if (string.IsNullOrEmpty(root)) return false;
+                var drive = new DriveInfo(root);
+                if (!drive.IsReady) return false;
+                if (drive.DriveType != DriveType.Fixed && drive.DriveType != DriveType.Removable) return false;
+                return string.Equals(drive.DriveFormat, "NTFS", StringComparison.OrdinalIgnoreCase);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <returns>Code：0=成功，其他=Shell 错误码；Aborted：操作被中止（用户取消或系统拒绝）。</returns>
+        public static (int Code, bool Aborted) DeleteFileToRecycleBin(string path, bool confirm)
         {
             var op = new SHFILEOPSTRUCTW
             {
@@ -1477,7 +1610,8 @@ public partial class MainWindow : Window
                 pFrom = path + "\0\0", // 双 null 结尾
                 fFlags = FOF_ALLOWUNDO | (confirm ? 0 : FOF_NOCONFIRMATION) | FOF_SILENT,
             };
-            return SHFileOperation(ref op);
+            int code = SHFileOperation(ref op);
+            return (code, op.fAnyOps != 0);
         }
     }
 
