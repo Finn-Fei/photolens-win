@@ -1,4 +1,4 @@
-# PhotoLensWin 一键构建与打包（Windows PowerShell）
+﻿# PhotoLensWin 一键构建与打包（Windows PowerShell）
 # 用法：powershell -ExecutionPolicy Bypass -File build.ps1 [-Version <版本号>] [-Runtime win-x64]
 
 param(
