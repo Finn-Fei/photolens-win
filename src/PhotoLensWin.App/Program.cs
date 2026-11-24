@@ -27,12 +27,24 @@ internal static class Program
 
         void Log(string msg)
         {
-            try { File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}] {msg}{Environment.NewLine}"); }
+            try { File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}] {Sanitize(msg)}{Environment.NewLine}"); }
             catch { }
         }
 
-        // 单实例：再次双击 exe 时把已有窗口唤到前台，而不是起一个什么都不显示的新进程
-        using var mutex = new Mutex(initiallyOwned: true, InstanceMutexName, out bool isFirstInstance);
+        // 单实例：再次双击 exe 时把已有窗口唤到前台，而不是起一个什么都不显示的新进程。
+        // 注意用 WaitOne(0) 抢所有权而不是看 createdNew：任何同会话进程只要先创建同名 Mutex
+        // （不需要持有）就能让正版 isFirstInstance=false，从而"静默不显示窗口"。
+        using var mutex = new Mutex(initiallyOwned: false, InstanceMutexName, out _);
+        bool isFirstInstance;
+        try
+        {
+            isFirstInstance = mutex.WaitOne(0);
+        }
+        catch (AbandonedMutexException)
+        {
+            // 上一个实例崩溃时被遗弃：所有权已归本进程
+            isFirstInstance = true;
+        }
         if (!isFirstInstance)
         {
             Log("检测到已有实例，转发打开请求后退出");
@@ -126,12 +138,15 @@ internal static class Program
             {
                 try
                 {
+                    // CurrentUserOnly：把管道 ACL 限制为当前用户，避免其它本地进程往首实例投递任意路径
                     await using var server = new NamedPipeServerStream(
                         OpenRequestPipeName, PipeDirection.In, 1,
-                        PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
+                        PipeTransmissionMode.Byte, PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
                     await server.WaitForConnectionAsync();
                     using var reader = new StreamReader(server);
-                    var payload = await reader.ReadToEndAsync();
+                    // 定长读取：ReadToEndAsync 没有上限，恶意对端可以灌入 GB 级数据或
+                    // 干脆不发 EOF 把服务端永久挂起
+                    var payload = await ReadPayloadAsync(reader);
                     var paths = payload.Split('\n', StringSplitOptions.RemoveEmptyEntries);
                     if (paths.Length == 0) continue;
                     log("收到外部打开请求：" + string.Join(" | ", paths));
@@ -160,6 +175,37 @@ internal static class Program
             await Task.Delay(100);
         }
         log("未找到主窗口，放弃外部打开请求");
+    }
+
+    /// <summary>打开请求的最大字符数（防御性上限，正常路径参数远小于此）。</summary>
+    private const int MaxOpenRequestChars = 64 * 1024;
+
+    /// <summary>带上限地读取请求内容，避免无界限的 ReadToEndAsync。</summary>
+    private static async Task<string> ReadPayloadAsync(StreamReader reader)
+    {
+        var buffer = new char[4096];
+        var sb = new System.Text.StringBuilder();
+        while (sb.Length < MaxOpenRequestChars)
+        {
+            int free = MaxOpenRequestChars - sb.Length;
+            int read = await reader.ReadAsync(buffer.AsMemory(0, Math.Min(buffer.Length, free)));
+            if (read <= 0) break;
+            sb.Append(buffer, 0, read);
+        }
+        return sb.ToString();
+    }
+
+    /// <summary>剥离控制字符并截断，避免日志行被注入/无限增长。</summary>
+    private static string Sanitize(string message)
+    {
+        const int maxLength = 4000;
+        if (message.Length > maxLength) message = message[..maxLength] + "…";
+        var sb = new System.Text.StringBuilder(message.Length);
+        foreach (char c in message)
+        {
+            sb.Append(char.IsControl(c) && c != '\n' && c != '\r' && c != '\t' ? ' ' : c);
+        }
+        return sb.ToString();
     }
 
     [DllImport("user32.dll")]

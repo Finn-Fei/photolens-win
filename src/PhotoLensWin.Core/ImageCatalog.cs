@@ -93,20 +93,27 @@ public static class ImageCatalog
         {
             foreach (var entry in dir.EnumerateFileSystemInfos())
             {
-                if (entry is DirectoryInfo sub)
+                // 逐条容错：单个条目在读取属性时失败（刚好被删/被拒访问）不应中断整个目录的收集，
+                // 否则用户会看到"莫名少了几张"。
+                try
                 {
-                    if (IsHidden(sub)) continue;
-                    // 目录联接/符号链接会形成自引用，递归下去必然 StackOverflow（不可捕获）
-                    if (IsReparsePoint(sub)) continue;
-                    CollectRecursive(sub.FullName, sink, seen);
+                    if (entry is DirectoryInfo sub)
+                    {
+                        if (IsHidden(sub)) continue;
+                        // 目录联接/符号链接会形成自引用，递归下去必然 StackOverflow（不可捕获）
+                        if (IsReparsePoint(sub)) continue;
+                        CollectRecursive(sub.FullName, sink, seen);
+                    }
+                    else if (entry is FileInfo file
+                             && !IsHidden(file)
+                             && ImageExtensions.Contains(file.Extension.TrimStart('.')))
+                    {
+                        if (seen is not null && !seen.Add(file.FullName)) continue;
+                        sink.Add(new ImageEntry(file.FullName, file.Name, file.Length, file.LastWriteTimeUtc));
+                    }
                 }
-                else if (entry is FileInfo file
-                         && !IsHidden(file)
-                         && ImageExtensions.Contains(file.Extension.TrimStart('.')))
-                {
-                    if (seen is not null && !seen.Add(file.FullName)) continue;
-                    sink.Add(new ImageEntry(file.FullName, file.Name, file.Length, file.LastWriteTimeUtc));
-                }
+                catch (UnauthorizedAccessException) { }
+                catch (IOException) { }
             }
         }
         catch (UnauthorizedAccessException)

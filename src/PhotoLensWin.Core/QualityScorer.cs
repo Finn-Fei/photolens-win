@@ -40,7 +40,15 @@ public enum PixelOrder
 /// </summary>
 public static class QualityScorer
 {
-    private const int StatsMaxSide = 320;
+    /// <summary>像素统计的最长边上限。App 层缩图时复用这个常量，避免两处各写一份 320。</summary>
+    public const int StatsMaxSide = 320;
+
+    /// <summary>像素统计缓冲的尺寸：与原图同比例、最长边不超过 <see cref="StatsMaxSide"/>、最小 16。</summary>
+    public static (int Width, int Height) StatsSize(int width, int height)
+    {
+        double ratio = Math.Min(1.0, StatsMaxSide / (double)Math.Max(1, Math.Max(width, height)));
+        return (Math.Max(16, (int)(width * ratio)), Math.Max(16, (int)(height * ratio)));
+    }
 
     public static QualityReport AssessQuality(int width, int height, byte[] pixels, PixelOrder order = PixelOrder.Rgba)
         => AssessQuality(width, height, pixels, order, width, height);
@@ -54,24 +62,23 @@ public static class QualityScorer
         double minSide = Math.Min(imageWidth, imageHeight);
         double resolutionScore = Math.Min(10.0, minSide / 1600.0 * 10.0);
 
-        double contrastScore = 5.0;
-        double exposureScore = 5.0;
-        double sharpnessScore = 5.0;
-        double colorScore = 5.0;
-
         var stats = PixelStatistics(pixelWidth, pixelHeight, pixels, order);
-        if (stats is not null)
+        if (stats is null)
         {
-            double std = stats.Value.Std;
-            // 高光侧封顶 4 分：白底产品图、文档扫描、雪景的大面积高光不该把曝光直接判成 0
-            exposureScore = Math.Clamp(
-                10 - Math.Min(4.0, Math.Max(0, stats.Value.ClippedHigh - 0.02) * 40)
-                  - Math.Max(0, stats.Value.ClippedLow - 0.08) * 40,
-                0, 10);
-            contrastScore = Math.Clamp(10 - Math.Abs(std - 50) / 6, 0, 10);
-            sharpnessScore = Math.Clamp(stats.Value.LaplacianVariance / 1000 * 10, 0, 10);
-            colorScore = Math.Clamp(10 - Math.Abs(stats.Value.Saturation - 0.30) / 0.08, 0, 10);
+            // 没有任何可见像素（如全透明 PNG）或缓冲尺寸非法：像素统计不可用。
+            // 返回「不可用」而不是给出一组看起来正常的中性 5 分，避免误导用户。
+            return new QualityReport(0, Array.Empty<QualityItem>());
         }
+
+        double std = stats.Value.Std;
+        // 高光侧封顶 4 分：白底产品图、文档扫描、雪景的大面积高光不该把曝光直接判成 0
+        double exposureScore = Math.Clamp(
+            10 - Math.Min(4.0, Math.Max(0, stats.Value.ClippedHigh - 0.02) * 40)
+              - Math.Max(0, stats.Value.ClippedLow - 0.08) * 40,
+            0, 10);
+        double contrastScore = Math.Clamp(10 - Math.Abs(std - 50) / 6, 0, 10);
+        double sharpnessScore = Math.Clamp(stats.Value.LaplacianVariance / 1000 * 10, 0, 10);
+        double colorScore = Math.Clamp(10 - Math.Abs(stats.Value.Saturation - 0.30) / 0.08, 0, 10);
 
         double total = 0.30 * sharpnessScore + 0.20 * exposureScore + 0.20 * contrastScore
             + 0.18 * resolutionScore + 0.12 * colorScore;
@@ -92,9 +99,7 @@ public static class QualityScorer
         if (width <= 0 || height <= 0 || pixels.LongLength < (long)width * height * 4) return null;
 
         // 缩到最长边 320px 后统计亮度/对比/锐度/饱和度，避免在大图上做全量计算
-        double ratio = Math.Min(1.0, StatsMaxSide / (double)Math.Max(width, height));
-        int w = Math.Max(16, (int)(width * ratio));
-        int h = Math.Max(16, (int)(height * ratio));
+        var (w, h) = StatsSize(width, height);
 
         var luminance = new double[w * h];
         var visible = new bool[w * h];

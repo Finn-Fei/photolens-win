@@ -117,16 +117,26 @@ public class QualityScorerTests
     }
 
     [Fact]
-    public void TransparentPixels_AreExcludedFromStatistics()
+    public void TransparentPixels_MakeTheScoreUnavailable()
     {
-        // 全透明图没有任何可见像素 → 像素统计不可用，其余项回退为中性 5 分，
-        // 而不是把透明区当成死黑/纯色扣分（对齐 Mac 版 alpha < 26 的过滤）。
+        // 全透明图没有任何可见像素 → 像素统计不可用。必须显式报「不可用」，
+        // 而不是给出一组看起来正常的中性 5 分（那会让用户以为评分有效）。
         var pixels = new byte[320 * 240 * 4];
         var report = QualityScorer.AssessQuality(320, 240, pixels);
-        Assert.Equal(5.0, Item(report, "曝光"), precision: 6);
-        Assert.Equal(5.0, Item(report, "对比"), precision: 6);
-        Assert.Equal(5.0, Item(report, "锐度"), precision: 6);
-        Assert.Equal(5.0, Item(report, "色彩"), precision: 6);
+        Assert.Empty(report.Items);
+        Assert.Single(report.Lines);
+        Assert.Contains("不可用", report.Lines[0]);
+    }
+
+    [Fact]
+    public void StatsSize_ScalesToMaxSide_WithFloorOfSixteen()
+    {
+        Assert.Equal((320, 320), QualityScorer.StatsSize(1600, 1600));
+        Assert.Equal((320, 200), QualityScorer.StatsSize(1600, 1000));
+        // 已小于上限的图不再缩小
+        Assert.Equal((100, 50), QualityScorer.StatsSize(100, 50));
+        // 极小图保底 16，避免退化尺寸
+        Assert.Equal((16, 16), QualityScorer.StatsSize(4, 4));
     }
 
     [Fact]

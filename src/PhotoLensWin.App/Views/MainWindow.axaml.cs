@@ -43,10 +43,13 @@ public partial class MainWindow : Window
     private string? _comparePath;
     private FullImage? _current;
     private AppSettings _settings = new();
-    private MemoryStream? _clipboardPng;
+    private readonly List<MemoryStream> _clipboardStreams = new();
     private int _loadVersion;
+    /// <summary>展示代次：每次"切换当前图 / 重建列表 / 拖入预览"都递增，异步续体据此判断结果是否已过时。</summary>
+    private int _presentVersion;
     private bool _rebuildingPicker;
     private bool _slideshowOn;
+    private bool _deleting;
     /// <summary>用户拖好的胶片栏宽度，隐藏/显示时保持。</summary>
     private double _stripWidth = 232;
     private MenuItem? _themeSystemItem, _themeDarkItem, _themeLightItem;
@@ -61,6 +64,7 @@ public partial class MainWindow : Window
         _thumbs.IsProtected = Strip.IsThumbnailInUse;
         WireControls();
         ApplyColumnConstraints();
+        UpdateToolbarEnabled();
         _toastTimer.Tick += (_, _) => ResetHint();
         _slideshowTimer.Tick += (_, _) => Step(1);
     }
@@ -75,9 +79,37 @@ public partial class MainWindow : Window
         grid.ColumnDefinitions[2].MinWidth = 200;
     }
 
+    /// <summary>只把本地路径当作"可自动访问"：UNC 会在没有用户操作的情况下触发 SMB 认证（泄露 NTLM）。</summary>
+    private static bool IsLocalFolderPath(string path)
+    {
+        try
+        {
+            return Path.IsPathRooted(path)
+                && !path.StartsWith(@"\\", StringComparison.Ordinal)
+                && !path.StartsWith("//", StringComparison.Ordinal);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>没有图片时禁用与之相关的工具按钮，而不是等用户点了才弹提示。</summary>
+    private void UpdateToolbarEnabled()
+    {
+        bool hasImages = _images.Count > 0;
+        bool canCompare = _images.Count >= 2;
+        BtnSort.IsEnabled = hasImages;
+        BtnInfo.IsEnabled = hasImages;
+        BtnFit.IsEnabled = hasImages;
+        BtnActual.IsEnabled = hasImages;
+        BtnCompare.IsEnabled = canCompare;
+        BtnSlideshow.IsEnabled = canCompare;
+    }
+
     // MARK: 启动
 
-    protected override async void OnOpened(EventArgs e)
+    protected override void OnOpened(EventArgs e)
     {
         base.OnOpened(e);
         try
@@ -94,22 +126,31 @@ public partial class MainWindow : Window
             RestoreWindowBounds();
 
             var args = Environment.GetCommandLineArgs().Skip(1).Where(a => !a.StartsWith('-')).ToArray();
-            var snapshotPath = Environment.GetEnvironmentVariable("PHOTOLENS_SNAPSHOT");
-            var snapshotFolder = Environment.GetEnvironmentVariable("PHOTOLENS_SNAPSHOT_FOLDER");
 
             if (args.Length > 0)
             {
                 LoadFromPaths(args);
             }
-            else if (!string.IsNullOrEmpty(_settings.LastFolder) && Directory.Exists(_settings.LastFolder))
+            else if (!string.IsNullOrEmpty(_settings.LastFolder)
+                     && IsLocalFolderPath(_settings.LastFolder)
+                     && Directory.Exists(_settings.LastFolder))
             {
+                // 只自动打开本地路径：指向 UNC 的 LastFolder 会在启动时触发 SMB 认证
                 LoadFolder(_settings.LastFolder);
             }
 
+#if DEBUG
+            // 自验快照只在 Debug 构建里存在：Release 产物不应保留"环境变量即可写任意路径并自动退出"的入口
+            var snapshotPath = Environment.GetEnvironmentVariable("PHOTOLENS_SNAPSHOT");
+            var snapshotFolder = Environment.GetEnvironmentVariable("PHOTOLENS_SNAPSHOT_FOLDER");
             if (snapshotPath is not null)
             {
-                await RunSelfCheckSnapshotAsync(snapshotPath, snapshotFolder);
+                // 自检是调试用途：fire-and-forget，并把异常记到日志（不再冒泡成 async void）
+                _ = RunSelfCheckSnapshotAsync(snapshotPath, snapshotFolder)
+                    .ContinueWith(t => LogError("snapshot failed: " + t.Exception),
+                        TaskContinuationOptions.OnlyOnFaulted);
             }
+#endif
         }
         catch (Exception ex)
         {
@@ -119,7 +160,8 @@ public partial class MainWindow : Window
         }
     }
 
-    /// <summary>自验模式：环境变量触发，渲染窗口截图后自动退出。</summary>
+#if DEBUG
+    /// <summary>自验模式：环境变量触发，渲染窗口截图后自动退出。仅 Debug 构建可用。</summary>
     private async Task RunSelfCheckSnapshotAsync(string snapshotPath, string? snapshotFolder)
     {
         if (!string.IsNullOrEmpty(snapshotFolder))
@@ -255,6 +297,7 @@ public partial class MainWindow : Window
             LogError("layout check failed: " + ex.Message);
         }
     }
+#endif
 
     // MARK: 窗口持久化
 
@@ -275,11 +318,14 @@ public partial class MainWindow : Window
         if (_settings.WindowLeft < 0 || _settings.WindowTop < 0) return;
         try
         {
-            int width = Math.Max(760, _settings.WindowWidth);
-            int height = Math.Max(540, _settings.WindowHeight);
+            // 同时做上下钳制：坏值（极大/负数）会让 PixelRect 溢出
+            int width = Math.Clamp(_settings.WindowWidth, 760, 8000);
+            int height = Math.Clamp(_settings.WindowHeight, 540, 8000);
             // 位置是物理像素、尺寸是 DIP：换算后与任一屏幕工作区求交，避免窗口整块落在屏幕外
             double scale = RenderScaling <= 0 ? 1 : RenderScaling;
-            var rect = new PixelRect(_settings.WindowLeft, _settings.WindowTop,
+            int left = Math.Clamp(_settings.WindowLeft, -32000, 32000);
+            int top = Math.Clamp(_settings.WindowTop, -32000, 32000);
+            var rect = new PixelRect(left, top,
                 (int)(width * scale), (int)(height * scale));
             if (!Screens.All.Any(s => s.WorkingArea.Intersects(rect)))
             {
@@ -288,7 +334,7 @@ public partial class MainWindow : Window
                 Height = height;
                 return;
             }
-            Position = new PixelPoint(_settings.WindowLeft, _settings.WindowTop);
+            Position = new PixelPoint(left, top);
             Width = width;
             Height = height;
         }
@@ -413,6 +459,15 @@ public partial class MainWindow : Window
             StopSlideshow();
             SaveWindowBounds();
             SaveSettings();
+            // 缓存与剪贴板流活到窗口关闭才释放：缓存里是全尺寸位图；
+            // 剪贴板可能是延迟渲染，提前释放会让粘贴读到已关闭的流。
+            _thumbs.Dispose();
+            _imageStore.Dispose();
+            foreach (var stream in _clipboardStreams)
+            {
+                try { stream.Dispose(); } catch { }
+            }
+            _clipboardStreams.Clear();
         };
     }
 
@@ -606,6 +661,8 @@ public partial class MainWindow : Window
             return;
         }
         if (version != _loadVersion) return;
+        // 在途请求可能用的是旧排序规则：完成时按当前规则重排，避免"列表顺序与排序按钮不一致"
+        collected = _sort.Apply(collected);
         if (collected.Count == 0)
         {
             // 空文件夹必须清空界面，否则主图/文件名/序号还挂着上一个文件夹的内容，看起来像没响应
@@ -620,18 +677,29 @@ public partial class MainWindow : Window
 
     private void PresentList(List<ImageEntry> collected, string? currentPath)
     {
-        _images = collected;
-        int startIndex = ImageCatalog.StartIndexFor(_images, currentPath);
-        Strip.SetItems(_images, startIndex >= 0 ? _images[startIndex].FullPath : null, scrollIntoView: false);
-        RebuildComparePicker();
-        if (_compareOn && _comparePath is not null &&
-            !_images.Any(i => PathEquals(i.FullPath, _comparePath)))
+        try
         {
-            _comparePath = null;
-            ComparePicker.SelectedIndex = -1;
-            CompareViewer.ShowMessage("从上方下拉框选择对比图，或把缩略图拖到这里");
+            // 新一代列表：让所有在途的旧展示结果作废
+            _presentVersion++;
+            _images = collected;
+            int startIndex = ImageCatalog.StartIndexFor(_images, currentPath);
+            Strip.SetItems(_images, startIndex >= 0 ? _images[startIndex].FullPath : null, scrollIntoView: false);
+            RebuildComparePicker();
+            if (_compareOn && _comparePath is not null &&
+                !_images.Any(i => PathEquals(i.FullPath, _comparePath)))
+            {
+                _comparePath = null;
+                ComparePicker.SelectedIndex = -1;
+                CompareViewer.ShowMessage("从上方下拉框选择对比图，或把缩略图拖到这里");
+            }
+            UpdateToolbarEnabled();
+            SelectIndex(startIndex, scrollStrip: false);
         }
-        SelectIndex(startIndex, scrollStrip: false);
+        catch (Exception ex)
+        {
+            LogError("PresentList failed: " + ex);
+            ShowToast("列表显示失败：" + ex.Message);
+        }
     }
 
     // MARK: 排序
@@ -681,8 +749,7 @@ public partial class MainWindow : Window
             ShowEmpty();
             return;
         }
-        if (index < 0) index = 0;
-        if (index >= _images.Count) index = _images.Count - 1;
+        index = ImageNavigator.ClampIndex(index, _images.Count);
 
         _currentIndex = index;
         var entry = _images[index];
@@ -691,7 +758,8 @@ public partial class MainWindow : Window
         // Windows 惯例：标题栏带当前文件名，Alt+Tab / 任务栏可辨认
         Title = $"{entry.Name} — PhotoLens";
 
-        _ = LoadAndPresentAsync(entry);
+        int version = ++_presentVersion;
+        _ = LoadAndPresentAsync(entry, version);
 
         if (_compareOn && (_comparePath is null || PathEquals(_comparePath, entry.FullPath)))
         {
@@ -710,32 +778,43 @@ public partial class MainWindow : Window
         if (_infoOn) RefreshInfo();
     }
 
-    private async Task LoadAndPresentAsync(ImageEntry entry)
+    private async Task LoadAndPresentAsync(ImageEntry entry, int version)
     {
-        var cached = _imageStore.Get(entry.FullPath);
-        if (cached is not null)
+        try
         {
-            PresentCurrent(cached);
-            return;
-        }
+            var cached = _imageStore.Get(entry.FullPath);
+            if (cached is not null)
+            {
+                if (version == _presentVersion && IsStillCurrent(entry)) PresentCurrent(cached);
+                return;
+            }
 
-        NameLabel.Text = entry.Name;
-        var loaded = await ImageStore.LoadAsync(entry.FullPath);
-        if (loaded is null)
-        {
+            NameLabel.Text = entry.Name;
+            var loaded = await ImageStore.LoadAsync(entry.FullPath);
+            if (version != _presentVersion) return; // 期间已切换到别的图/重建列表：丢弃迟到结果
+
+            if (loaded is null)
+            {
+                if (IsStillCurrent(entry))
+                {
+                    _current = null;
+                    MainViewer.ShowMessage("这张图片无法解码：" + entry.Name);
+                    if (_infoOn) RefreshInfo();
+                    ShowToast("无法解码 " + entry.Name);
+                }
+                return;
+            }
+            _imageStore.Put(loaded);
             if (IsStillCurrent(entry))
             {
-                _current = null;
-                MainViewer.ShowMessage("这张图片无法解码：" + entry.Name);
-                if (_infoOn) RefreshInfo();
-                ShowToast("无法解码 " + entry.Name);
+                PresentCurrent(loaded);
             }
-            return;
         }
-        _imageStore.Put(loaded);
-        if (IsStillCurrent(entry))
+        catch (Exception ex)
         {
-            PresentCurrent(loaded);
+            // fire-and-forget 的异步方法必须自带兜底，否则异常会变成"界面没反应"
+            LogError("LoadAndPresentAsync failed: " + ex);
+            ShowToast("显示失败：" + entry.Name);
         }
     }
 
@@ -762,13 +841,13 @@ public partial class MainWindow : Window
         MainViewer.ShowMessage("把图片或文件夹拖到这里\n或者按 Ctrl+O 打开");
         MainViewer.SetArrows(false, false);
         RebuildComparePicker();
+        UpdateToolbarEnabled();
     }
 
     private bool CanStep(int direction)
     {
         if (_images.Count == 0) return false;
-        int next = _currentIndex + direction;
-        return next >= 0 && next < _images.Count;
+        return ImageNavigator.CanStep(_images.Count, _currentIndex, direction);
     }
 
     private void Step(int direction)
@@ -777,11 +856,8 @@ public partial class MainWindow : Window
         {
             if (_slideshowOn && _images.Count > 0)
             {
-                // 幻灯片模式：到末尾自动回到开头
-                int next = _currentIndex + direction;
-                if (next < 0) next = _images.Count - 1;
-                if (next >= _images.Count) next = 0;
-                SelectIndex(next);
+                // 幻灯片模式：到末尾自动回绕（纯下标逻辑在 Core.ImageNavigator，已被单测覆盖）
+                SelectIndex(ImageNavigator.WrapStep(_currentIndex, _images.Count, direction));
             }
             return;
         }
@@ -868,7 +944,11 @@ public partial class MainWindow : Window
             if (updatePicker)
             {
                 int index = _images.FindIndex(i => PathEquals(i.FullPath, path));
-                ComparePicker.SelectedIndex = index;
+                // 静音赋值：否则 SelectedIndex 会同步触发 OnComparePicked → 又一次 SetCompareImage
+                // → 对同一路径发起第二次全量解码
+                _rebuildingPicker = true;
+                try { ComparePicker.SelectedIndex = index; }
+                finally { _rebuildingPicker = false; }
             }
             _ = PresentCompareAsync(path);
         }
@@ -962,9 +1042,11 @@ public partial class MainWindow : Window
 
     private async Task LoadAndDropInAsync(string path)
     {
+        int version = ++_presentVersion; // 拖入预览也算一次"当前展示"，让在途的列表载入作废
         try
         {
             var loaded = await ImageStore.LoadAsync(path);
+            if (version != _presentVersion) return; // 期间用户又切了图：不要用迟到结果覆盖
             if (loaded is null)
             {
                 ShowToast("无法解码 " + Path.GetFileName(path));
@@ -1041,7 +1123,9 @@ public partial class MainWindow : Window
             bool horizontal = InfoPanel.Bounds.X < arrowRight;
             covered = vertical && horizontal;
         }
-        double maxRight = Math.Max(14, MainViewer.Bounds.Width - 44 - 8);
+        // 右箭头不能越过左箭头（左箭头占 14~58px）：画布太窄时宁可不左移，
+        // 否则 760px + 对比 + 信息面板下两枚 44px 圆钮会叠在一起。
+        double maxRight = Math.Max(14, Math.Min(MainViewer.Bounds.Width - 44 - 8, MainViewer.Bounds.Width - 110));
         double right = covered ? Math.Min(InfoPanel.Bounds.Width + 18 + 10, maxRight) : 14;
         // LayoutUpdated 会高频触发，值没变就不要改，避免反复重新布局
         if (Math.Abs(BtnNext.Margin.Right - right) < 0.5) return;
@@ -1052,7 +1136,8 @@ public partial class MainWindow : Window
     {
         if (_current is null)
         {
-            InfoText.Text = "";
+            // 没有当前图时不要留一个只有内边距的空白圆角盒
+            InfoText.Text = "未选择图片";
             return;
         }
         var image = _current;
@@ -1120,8 +1205,9 @@ public partial class MainWindow : Window
 
     private void ShowToast(string message)
     {
-        HintLabel.Text = message;
-        HintLabel.Classes.Add("hintToast");
+        // Toast 走独立浮层：底部快捷键提示保持常驻，不再被提示文案覆盖或挤位
+        ToastLabel.Text = message;
+        ToastHost.IsVisible = true;
         _toastTimer.Stop();
         _toastTimer.Start();
     }
@@ -1129,7 +1215,7 @@ public partial class MainWindow : Window
     private void ResetHint()
     {
         _toastTimer.Stop();
-        HintLabel.Classes.Remove("hintToast");
+        ToastHost.IsVisible = false;
         HintLabel.Text = HintText;
     }
 
@@ -1333,13 +1419,13 @@ public partial class MainWindow : Window
                 return;
             }
             await clipboard.SetDataObjectAsync(data);
-            _clipboardPng?.Dispose();
-            _clipboardPng = ms;
+            // 不立即释放上一份：剪贴板可能是延迟渲染，消费者要读到流关闭/进程退出
+            _clipboardStreams.Add(ms);
             ShowToast("已复制图像");
         }
         catch
         {
-            if (!ReferenceEquals(_clipboardPng, ms)) ms?.Dispose();
+            ms?.Dispose();
             ShowToast("复制图像失败（剪贴板不支持）");
         }
     }
@@ -1383,12 +1469,21 @@ public partial class MainWindow : Window
 
     private async Task SaveCurrentAsAsync(bool isMain, bool jpeg)
     {
-        var image = isMain ? MainViewer.Current : CompareViewer.Current;
+        var viewer = isMain ? MainViewer : CompareViewer;
+        var image = viewer.Current;
         if (image is null) return;
+
+        var (matrix, targetWidth, targetHeight) = viewer.ExportTransform();
+        // EXIF 方向 2–8、或用户按过 R：显示期只是矩阵变换，直接编码原像素会让产物在所有
+        // 软件里都是歪的，并丢掉全部 EXIF。这里把变换烘进像素再编码。
+        bool needsFlatten = image.Orientation is >= 2 and <= 8 || viewer.RotationTurns != 0;
+        string suffix = needsFlatten ? "-校正" : "";
+
         var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
         {
             Title = "另存为 " + (jpeg ? "JPEG" : "PNG"),
-            SuggestedFileName = Path.GetFileNameWithoutExtension(image.Path) + (jpeg ? ".jpg" : ".png"),
+            // 加后缀：避免用户顺手覆盖原图，把降级产物（无 EXIF）留在原位
+            SuggestedFileName = Path.GetFileNameWithoutExtension(image.Path) + suffix + (jpeg ? ".jpg" : ".png"),
             FileTypeChoices = new[]
             {
                 new FilePickerFileType(jpeg ? "JPEG 图像" : "PNG 图像")
@@ -1401,7 +1496,8 @@ public partial class MainWindow : Window
         try
         {
             await using var stream = await file.OpenWriteAsync();
-            using var skImage = SkiaSharp.SKImage.FromBitmap(image.Source);
+            using var flattened = Flatten(image, matrix, targetWidth, targetHeight);
+            using var skImage = SkiaSharp.SKImage.FromBitmap(flattened);
             var encoded = skImage.Encode(
                 jpeg ? SkiaSharp.SKEncodedImageFormat.Jpeg : SkiaSharp.SKEncodedImageFormat.Png,
                 92);
@@ -1415,33 +1511,64 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>把来源位图按显示变换（EXIF 方向 × 用户旋转）绘制到新位图，尺寸取摆正后的显示尺寸。</summary>
+    private static SkiaSharp.SKBitmap Flatten(FullImage image, Affine matrix, int width, int height)
+    {
+        var info = new SkiaSharp.SKImageInfo(
+            Math.Max(1, width), Math.Max(1, height),
+            SkiaSharp.SKColorType.Bgra8888, SkiaSharp.SKAlphaType.Premul);
+        var target = new SkiaSharp.SKBitmap(info);
+        using var canvas = new SkiaSharp.SKCanvas(target);
+        canvas.Clear(SkiaSharp.SKColors.Transparent);
+        // Affine(A,B,C,D,E,F) 与 SKMatrix 的字段一一对应：
+        // x' = ScaleX·x + SkewX·y + TransX，y' = SkewY·x + ScaleY·y + TransY
+        var skMatrix = new SkiaSharp.SKMatrix
+        {
+            ScaleX = (float)matrix.A,
+            SkewX = (float)matrix.C,
+            TransX = (float)matrix.E,
+            SkewY = (float)matrix.B,
+            ScaleY = (float)matrix.D,
+            TransY = (float)matrix.F,
+            Persp2 = 1,
+        };
+        canvas.SetMatrix(skMatrix);
+        using var paint = new SkiaSharp.SKPaint { FilterQuality = SkiaSharp.SKFilterQuality.High };
+        canvas.DrawBitmap(image.Source, 0, 0, paint);
+        return target;
+    }
+
     /// <summary>删除当前图片到回收站，并从列表同步移除。</summary>
     private async Task DeleteCurrentFileAsync()
     {
+        if (_deleting) return; // 连击两次会让第二次报"删除失败"，并重复选择
         if (_current is null || string.IsNullOrEmpty(_current.Path)) return;
+
         var path = _current.Path;
+        // 目标必须仍是普通文件且不是重解析点：期间被替换为目录时，SHFileOperation 会整棵删除
+        if (!NativeMethods.IsPlainFile(path))
+        {
+            ShowToast("目标已不是普通文件，已取消删除");
+            return;
+        }
+
         // 按路径定位列表行：当前画面可能是拖入的预览图，_currentIndex 并不指向它
         int listIndex = _images.FindIndex(i => PathEquals(i.FullPath, path));
         int versionAtStart = _loadVersion;
-        bool aborted = false;
-        // 非 NTFS 本地卷 / UNC 路径上 FOF_ALLOWUNDO 不生效，会变成永久删除：先应用内确认
-        if (!NativeMethods.CanRecycle(path) && !await ConfirmPermanentDeleteAsync(path))
-            return;
+        bool canRecycle = NativeMethods.CanRecycle(path);
+
+        _deleting = true;
         try
         {
-            await Task.Run(() =>
-            {
-                // 回收站可用时静默删除（对齐 Windows 照片）；不可用时已在上一步确认
-                (int code, bool wasAborted) = NativeMethods.DeleteFileToRecycleBin(path, confirm: false);
-                if (wasAborted)
-                {
-                    aborted = true;
-                    return;
-                }
-                if (code != 0)
-                    throw new InvalidOperationException("SHFileOperation failed: " + code);
-            });
-            if (aborted) return;
+            // 回收站不可用（非 NTFS 本地卷 / UNC / U 盘未启用回收站）时先应用内确认，默认取消
+            if (!canRecycle && !await ConfirmPermanentDeleteAsync(path)) return;
+
+            // 在 UI 线程同步删除：Shell 的"Nuke 警告"对话框需要消息泵，
+            // 丢到线程池线程上会弹不出来，那就等于又退化为静默永久删除。
+            (int code, bool wasAborted) = NativeMethods.DeleteToRecycleBin(path, allowNukeWarning: canRecycle);
+            if (wasAborted) return;
+            if (code != 0)
+                throw new InvalidOperationException("SHFileOperation failed: " + code);
 
             // 顺序很关键：先把画面从位图上摘掉，再摘缓存并释放。
             // 反过来会在一帧渲染里用到已释放的位图（同图对比时两个视图共享同一实例，必崩）。
@@ -1470,13 +1597,21 @@ public partial class MainWindow : Window
                 }
                 if (_images.Count > 0 && _currentIndex >= 0 && _currentIndex < _images.Count)
                     SelectIndex(_currentIndex);
+                else
+                    ShowEmpty();
             }
-            ShowToast("已移到回收站：" + Path.GetFileName(path));
+            UpdateToolbarEnabled();
+            // 回收站可用时是"移到回收站"，不可用时是用户确认过的永久删除，文案不能混
+            ShowToast((canRecycle ? "已移到回收站：" : "已永久删除：") + Path.GetFileName(path));
         }
         catch (Exception ex)
         {
             LogError("DeleteCurrentFileAsync failed: " + ex.Message);
             ShowToast("删除失败：" + ex.Message);
+        }
+        finally
+        {
+            _deleting = false;
         }
     }
 
@@ -1487,15 +1622,20 @@ public partial class MainWindow : Window
         var dialog = new Window
         {
             Title = "无法放入回收站",
-            Width = 400,
-            Height = 170,
+            Width = 420,
+            // 高度随内容自适应：完整路径会折行，固定高度会把末尾裁掉
+            SizeToContent = SizeToContent.Height,
+            MinHeight = 150,
+            MaxHeight = 360,
             CanResize = false,
             ShowInTaskbar = false,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            // 自建对话框也跟随应用主题，避免与主窗体出现底色色差
+            Background = Background,
         };
         var message = new TextBlock
         {
-            Text = $"「{Path.GetFileName(path)}」所在位置不支持回收站，删除后无法找回。是否继续？",
+            Text = $"回收站不可用，删除后将无法找回：\n{path}\n\n是否继续？",
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(18, 18, 18, 8),
         };
@@ -1576,6 +1716,8 @@ public partial class MainWindow : Window
         private const int FOF_ALLOWUNDO = 0x40;
         private const int FOF_NOCONFIRMATION = 0x10;   // 跳过确认框（我们自己做）
         private const int FOF_SILENT = 0x0004;
+        // 回收站不可用而必须永久删除时，仍让 Shell 弹一次警告（部分覆盖 FOF_NOCONFIRMATION）
+        private const int FOF_WANTNUKEWARNING = 0x4000;
 
         [System.Runtime.InteropServices.DllImport("shell32.dll", EntryPoint = "SHFileOperationW", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
         private static extern int SHFileOperation(ref SHFILEOPSTRUCTW FileOp);
@@ -1591,7 +1733,13 @@ public partial class MainWindow : Window
                 if (string.IsNullOrEmpty(root)) return false;
                 var drive = new DriveInfo(root);
                 if (!drive.IsReady) return false;
-                if (drive.DriveType != DriveType.Fixed && drive.DriveType != DriveType.Removable) return false;
+                if (drive.DriveType == DriveType.Removable)
+                {
+                    // 可移动卷（U 盘/读卡器）不一定启用回收站：只有卷根真的存在 $Recycle.Bin
+                    // 才认为能回收，否则 FOF_ALLOWUNDO 会退化为永久删除。
+                    return Directory.Exists(Path.Combine(root, "$Recycle.Bin"));
+                }
+                if (drive.DriveType != DriveType.Fixed) return false;
                 return string.Equals(drive.DriveFormat, "NTFS", StringComparison.OrdinalIgnoreCase);
             }
             catch
@@ -1600,15 +1748,35 @@ public partial class MainWindow : Window
             }
         }
 
+        /// <summary>目标是否仍是普通文件（非目录、非重解析点）。删除前必须确认，
+        /// 否则期间被替换为目录时 SHFileOperation 会递归删除整棵目录。</summary>
+        public static bool IsPlainFile(string path)
+        {
+            try
+            {
+                var attrs = File.GetAttributes(path);
+                return (attrs & FileAttributes.Directory) == 0
+                    && (attrs & FileAttributes.ReparsePoint) == 0;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>删除到回收站。
+        /// allowNukeWarning=true 时，若文件无法回收而将被永久删除，Shell 会弹一次警告
+        /// （部分覆盖 FOF_NOCONFIRMATION）；已在应用内确认过永久删除的调用方可传 false 避免二次打扰。</summary>
         /// <returns>Code：0=成功，其他=Shell 错误码；Aborted：操作被中止（用户取消或系统拒绝）。</returns>
-        public static (int Code, bool Aborted) DeleteFileToRecycleBin(string path, bool confirm)
+        public static (int Code, bool Aborted) DeleteToRecycleBin(string path, bool allowNukeWarning)
         {
             var op = new SHFILEOPSTRUCTW
             {
                 hwnd = IntPtr.Zero,
                 wFunc = FO_DELETE,
                 pFrom = path + "\0\0", // 双 null 结尾
-                fFlags = FOF_ALLOWUNDO | (confirm ? 0 : FOF_NOCONFIRMATION) | FOF_SILENT,
+                fFlags = FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_SILENT
+                         | (allowNukeWarning ? FOF_WANTNUKEWARNING : 0),
             };
             int code = SHFileOperation(ref op);
             return (code, op.fAnyOps != 0);
@@ -1643,8 +1811,21 @@ public partial class MainWindow : Window
             var dir = Path.GetDirectoryName(LogPath);
             if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
             File.AppendAllText(LogPath,
-                $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {message}{Environment.NewLine}");
+                $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {Sanitize(message)}{Environment.NewLine}");
         }
         catch { /* 日志写不了就算了 */ }
+    }
+
+    /// <summary>剥离控制字符（防止日志行被注入/伪造）并截断超长内容。</summary>
+    private static string Sanitize(string message)
+    {
+        const int maxLength = 4000;
+        if (message.Length > maxLength) message = message[..maxLength] + "…";
+        var sb = new System.Text.StringBuilder(message.Length);
+        foreach (char c in message)
+        {
+            sb.Append(char.IsControl(c) && c != '\n' && c != '\r' && c != '\t' ? ' ' : c);
+        }
+        return sb.ToString();
     }
 }

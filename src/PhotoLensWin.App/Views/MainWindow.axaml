@@ -8,17 +8,26 @@
 
   <Window.Styles>
     <Style Selector="Button.tool">
-      <Setter Property="Padding" Value="9,5" />
+      <Setter Property="Padding" Value="8,4" />
       <Setter Property="MinWidth" Value="0" />
       <Setter Property="CornerRadius" Value="6" />
-      <Setter Property="FontSize" Value="12.5" />
+      <Setter Property="FontSize" Value="12" />
       <Setter Property="VerticalAlignment" Value="Center" />
     </Style>
     <Style Selector="Button.tool:pointerover /template/ ContentPresenter">
       <Setter Property="Background" Value="{DynamicResource ToolHover}" />
     </Style>
+    <Style Selector="Button.tool:pressed /template/ ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource ToolHover}" />
+      <Setter Property="Opacity" Value="0.8" />
+    </Style>
+    <Style Selector="Button.tool:disabled">
+      <Setter Property="Opacity" Value="0.4" />
+    </Style>
     <Style Selector="Button.toggleOn">
       <Setter Property="Background" Value="{DynamicResource ToggleOn}" />
+      <!-- 激活态必须同时给出前景色：否则亮色主题下 Fluent 的近黑文字压在深蓝底上只有 ~3.1:1 -->
+      <Setter Property="Foreground" Value="{DynamicResource AccentForeground}" />
     </Style>
     <!-- 激活态在悬停时必须保持蓝色，否则会被上面的 :pointerover 规则覆盖成灰色 -->
     <Style Selector="Button.tool.toggleOn:pointerover /template/ ContentPresenter">
@@ -30,17 +39,17 @@
       <Setter Property="CornerRadius" Value="22" />
       <Setter Property="FontSize" Value="26" />
       <Setter Property="FontWeight" Value="Bold" />
-      <Setter Property="Foreground" Value="White" />
-      <Setter Property="Background" Value="#66000000" />
+      <Setter Property="Foreground" Value="{DynamicResource OnScrim}" />
+      <Setter Property="Background" Value="{DynamicResource Scrim}" />
       <Setter Property="Opacity" Value="1" />
       <Setter Property="VerticalAlignment" Value="Center" />
       <Setter Property="Padding" Value="0" />
     </Style>
     <Style Selector="Button.glassArrow:pointerover">
-      <Setter Property="Background" Value="#AA2E5C99" />
+      <Setter Property="Background" Value="{DynamicResource OverlayHover}" />
     </Style>
     <Style Selector="Button.glassArrow:pressed">
-      <Setter Property="Background" Value="#CC2E5C99" />
+      <Setter Property="Background" Value="{DynamicResource OverlayPressed}" />
     </Style>
     <!-- 模板里的 ContentPresenter 会盖住 Button.Background，这里必须放开，否则上面的蓝色悬停是死规则 -->
     <Style Selector="Button.glassArrow /template/ ContentPresenter">
@@ -53,11 +62,11 @@
       <Setter Property="Opacity" Value="0.85" />
     </Style>
     <Style Selector="Border.dropHighlight">
-      <Setter Property="BorderBrush" Value="#4E84D4" />
+      <Setter Property="BorderBrush" Value="{DynamicResource DropHighlightBorder}" />
       <Setter Property="BorderThickness" Value="2" />
-      <Setter Property="CornerRadius" Value="10" />
+      <Setter Property="CornerRadius" Value="8" />
       <Setter Property="Margin" Value="8" />
-      <Setter Property="Background" Value="#1F4E84D4" />
+      <Setter Property="Background" Value="{DynamicResource DropHighlightFill}" />
     </Style>
     <Style Selector="Border.loupe">
       <Setter Property="Background" Value="Black" />
@@ -70,21 +79,41 @@
       <Setter Property="Foreground" Value="{DynamicResource BarForeground}" />
       <Setter Property="VerticalAlignment" Value="Center" />
     </Style>
-    <Style Selector="TextBlock.hintToast">
-      <Setter Property="Foreground" Value="#E8A33D" />
+    <!-- 提示 Toast 独立成一层浮层（不再复用底部提示位），颜色走主题 token：
+         浅色主题下原硬编码琥珀 #E8A33D 压在 #E8EAED 上只有 1.79:1 -->
+    <Style Selector="Border.toastHost">
+      <Setter Property="Background" Value="{DynamicResource MenuBackground}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource DividerBackground}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="6" />
+      <Setter Property="Padding" Value="10,4" />
+      <Setter Property="MaxWidth" Value="560" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="IsHitTestVisible" Value="False" />
+      <Setter Property="IsVisible" Value="False" />
+    </Style>
+    <Style Selector="TextBlock.toastLabel">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{DynamicResource WarningForeground}" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
     </Style>
     <Style Selector="Border.infoPanel">
       <!-- 对齐 mac：宽度随内容自适应，200–300 之间，不再固定 216 挤压画布 -->
       <Setter Property="MinWidth" Value="200" />
       <Setter Property="MaxWidth" Value="300" />
       <Setter Property="Background" Value="{DynamicResource InfoPanelBackground}" />
-      <Setter Property="CornerRadius" Value="8" />
-      <Setter Property="Margin" Value="0,18,18,0" />
-      <Setter Property="Padding" Value="10,9" />
+      <!-- 加 1px 描边：面板底色与画布只差约 1.07:1，没有边界会"糊"在照片上 -->
+      <Setter Property="BorderBrush" Value="{DynamicResource DividerBackground}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="6" />
+      <Setter Property="Margin" Value="0,16,16,0" />
+      <Setter Property="Padding" Value="12,10" />
     </Style>
     <Style Selector="TextBlock.infoText">
-      <Setter Property="FontSize" Value="12.5" />
-      <Setter Property="LineHeight" Value="22" />
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="LineHeight" Value="19" />
       <Setter Property="Foreground" Value="{DynamicResource InfoForeground}" />
       <Setter Property="TextWrapping" Value="Wrap" />
     </Style>
@@ -103,6 +132,10 @@
       <Setter Property="Background" Value="{DynamicResource CardSelectedBackground}" />
       <Setter Property="BorderBrush" Value="{DynamicResource CardSelectedBorder}" />
       <Setter Property="BorderThickness" Value="2" />
+    </Style>
+    <!-- 悬停反馈：只提亮描边、不动底色；与选中态描边同色，因此排序不影响选中外观 -->
+    <Style Selector="Border.filmItem:pointerover">
+      <Setter Property="BorderBrush" Value="{DynamicResource CardSelectedBorder}" />
     </Style>
 
     <!-- 菜单显式样式：避免 FluentTheme 继承链断裂导致黑字黑底。
@@ -129,22 +162,22 @@
 
     <!-- 工具条：右侧固定缩放按钮，左侧按钮可横向滚动，窗口变窄或出现对比下拉框时不会被裁掉 -->
     <DockPanel Grid.Row="1" Background="{DynamicResource ToolbarBackground}" Margin="8,4" LastChildFill="True">
-      <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="6" Margin="8,0,0,0">
-        <Button Classes="tool" x:Name="BtnFit" Content="适合窗口" ToolTip.Tip="F 或 9" />
-        <Button Classes="tool" x:Name="BtnActual" Content="实际大小" ToolTip.Tip="0 或双击" />
+      <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8" Margin="8,0,0,0">
+        <Button Classes="tool" x:Name="BtnFit" Content="适合窗口" ToolTip.Tip="F 或 9" AutomationProperties.Name="适合窗口" />
+        <Button Classes="tool" x:Name="BtnActual" Content="实际大小" ToolTip.Tip="0 或双击" AutomationProperties.Name="实际大小" />
       </StackPanel>
       <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled"
                     ScrollViewer.AllowAutoHide="False">
-        <StackPanel Orientation="Horizontal" Spacing="6" x:Name="Toolbar">
-          <Button Classes="tool" x:Name="BtnOpenFolder" Content="打开文件夹" ToolTip.Tip="Ctrl+O 打开文件夹" />
-          <Button Classes="tool" x:Name="BtnOpenImages" Content="打开图片" ToolTip.Tip="Ctrl+Shift+O 打开多张图片" />
-          <Button Classes="tool" x:Name="BtnSort" Content="排序 ▾" ToolTip.Tip="切换排序方式" />
-          <Button Classes="tool" x:Name="BtnCompare" Content="对比" ToolTip.Tip="左右分栏对比两张图片" />
+        <StackPanel Orientation="Horizontal" Spacing="8" x:Name="Toolbar">
+          <Button Classes="tool" x:Name="BtnOpenFolder" Content="打开文件夹" ToolTip.Tip="Ctrl+O 打开文件夹" AutomationProperties.Name="打开文件夹" />
+          <Button Classes="tool" x:Name="BtnOpenImages" Content="打开图片" ToolTip.Tip="Ctrl+Shift+O 打开多张图片" AutomationProperties.Name="打开图片" />
+          <Button Classes="tool" x:Name="BtnSort" Content="排序 ▾" ToolTip.Tip="切换排序方式" AutomationProperties.Name="切换排序方式" />
+          <Button Classes="tool" x:Name="BtnCompare" Content="对比" ToolTip.Tip="左右分栏对比两张图片" AutomationProperties.Name="对比模式" />
           <ComboBox x:Name="ComparePicker" MinWidth="140" MaxWidth="200" IsVisible="False"
-                    FontSize="12" VerticalAlignment="Center" />
-          <Button Classes="tool" x:Name="BtnInfo" Content="图片信息" ToolTip.Tip="I 显示/隐藏 EXIF 信息面板" />
-          <Button Classes="tool" x:Name="BtnList" Content="隐藏列表" ToolTip.Tip="L 显示/隐藏胶片栏" />
-          <Button Classes="tool" x:Name="BtnSlideshow" Content="幻灯片" ToolTip.Tip="开始/停止自动播放" />
+                    FontSize="12" VerticalAlignment="Center" AutomationProperties.Name="选择对比图" />
+          <Button Classes="tool" x:Name="BtnInfo" Content="图片信息" ToolTip.Tip="I 显示/隐藏 EXIF 信息面板" AutomationProperties.Name="图片信息面板" />
+          <Button Classes="tool" x:Name="BtnList" Content="隐藏列表" ToolTip.Tip="L 显示/隐藏胶片栏" AutomationProperties.Name="显示或隐藏胶片栏" />
+          <Button Classes="tool" x:Name="BtnSlideshow" Content="幻灯片" ToolTip.Tip="开始/停止自动播放" AutomationProperties.Name="幻灯片" />
         </StackPanel>
       </ScrollViewer>
     </DockPanel>
@@ -158,42 +191,52 @@
         <Grid Grid.Column="2" x:Name="MainSplit" ColumnDefinitions="1*,0,0">
           <!-- 主画布 -->
           <Panel Grid.Column="0">
-            <local:ImageViewer x:Name="MainViewer" />
+            <local:ImageViewer x:Name="MainViewer" AutomationProperties.Name="主图" />
             <Button Classes="glassArrow" x:Name="BtnPrev" Content="‹"
-                    HorizontalAlignment="Left" VerticalAlignment="Center" Margin="14,0,0,0" />
+                    HorizontalAlignment="Left" VerticalAlignment="Center" Margin="14,0,0,0"
+                    AutomationProperties.Name="上一张" />
             <Button Classes="glassArrow" x:Name="BtnNext" Content="›"
-                    HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,14,0" />
+                    HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,14,0"
+                    AutomationProperties.Name="下一张" />
           </Panel>
 
           <!-- 对比区（进入对比模式时展开） -->
           <Border Grid.Column="1" Classes="divider" x:Name="CompareDivider" IsVisible="False" />
           <Grid Grid.Column="2" x:Name="CompareArea" IsVisible="False">
-            <local:ImageViewer x:Name="CompareViewer" Margin="0,0,0,0" />
+            <local:ImageViewer x:Name="CompareViewer" Margin="0,0,0,0" AutomationProperties.Name="对比图" />
           </Grid>
         </Grid>
       </Grid>
 
       <!-- 信息面板锚定整窗右上角（对齐 mac）：不参与左右分栏，对比模式下浮在右窗格上方 -->
       <Border Classes="infoPanel" x:Name="InfoPanel" IsVisible="False" MaxHeight="300"
-              HorizontalAlignment="Right" VerticalAlignment="Top">
+              HorizontalAlignment="Right" VerticalAlignment="Top" AutomationProperties.Name="图片信息">
         <ScrollViewer>
           <TextBlock Classes="infoText" x:Name="InfoText" />
         </ScrollViewer>
       </Border>
     </Panel>
 
-    <Border Grid.Row="3" Background="{DynamicResource StatusBackground}" Height="34">
-      <Grid ColumnDefinitions="1*,2*,Auto">
-        <TextBlock Grid.Column="0" Classes="bar" x:Name="NameLabel" Margin="12,0"
-                   HorizontalAlignment="Left" TextTrimming="CharacterEllipsis" />
-        <TextBlock Grid.Column="1" Classes="bar" x:Name="HintLabel"
-                   HorizontalAlignment="Center" TextTrimming="CharacterEllipsis" />
-        <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right"
-                    Margin="12,0" Spacing="14">
-          <TextBlock Classes="bar" x:Name="IndexLabel" />
-          <TextBlock Classes="bar" x:Name="ZoomLabel" />
-        </StackPanel>
-      </Grid>
-    </Border>
+    <Panel Grid.Row="3">
+      <Border Background="{DynamicResource StatusBackground}" MinHeight="34">
+        <Grid ColumnDefinitions="1*,2*,Auto">
+          <TextBlock Grid.Column="0" Classes="bar" x:Name="NameLabel" Margin="12,0"
+                     HorizontalAlignment="Left" TextTrimming="CharacterEllipsis"
+                     AutomationProperties.Name="当前文件名" />
+          <TextBlock Grid.Column="1" Classes="bar" x:Name="HintLabel"
+                     HorizontalAlignment="Center" TextTrimming="CharacterEllipsis"
+                     AutomationProperties.LiveSetting="Polite" />
+          <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right"
+                      Margin="12,0" Spacing="16">
+            <TextBlock Classes="bar" x:Name="IndexLabel" />
+            <TextBlock Classes="bar" x:Name="ZoomLabel" />
+          </StackPanel>
+        </Grid>
+      </Border>
+      <!-- Toast 独立浮层：底部快捷键提示保持常驻，提示文案不再被抢占 -->
+      <Border Classes="toastHost" x:Name="ToastHost">
+        <TextBlock Classes="toastLabel" x:Name="ToastLabel" />
+      </Border>
+    </Panel>
   </Grid>
 </Window>

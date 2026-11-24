@@ -31,6 +31,9 @@ public sealed class AppSettings
     public List<string> RecentFolders { get; set; } = new();
 
     public const int MaxRecentFolders = 10;
+
+    /// <summary>设置文件大小上限：异常或被填充的巨大文件直接忽略，避免启动即读入超大内容。</summary>
+    public const long MaxSettingsFileBytes = 1024 * 1024;
 }
 
 public static class SettingsStore
@@ -52,10 +55,12 @@ public static class SettingsStore
         try
         {
             if (!File.Exists(path)) return new AppSettings();
+            // 超出上限的设置文件按损坏处理：不把它整份读进内存
+            if (new FileInfo(path).Length > AppSettings.MaxSettingsFileBytes) return new AppSettings();
             var settings = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(path), JsonOptions);
             if (settings is null) return new AppSettings();
             // 旧版本设置文件无 RecentFolders / Theme：补默认值
-            settings.RecentFolders ??= new List<string>();
+            settings.RecentFolders = NormalizeRecentFolders(settings.RecentFolders ?? new List<string>());
             if (string.IsNullOrEmpty(settings.Theme)) settings.Theme = "Dark";
             if (string.IsNullOrEmpty(settings.WheelMode)) settings.WheelMode = "Zoom";
             return settings;
@@ -87,7 +92,21 @@ public static class SettingsStore
         var list = settings.RecentFolders;
         list.RemoveAll(f => string.Equals(f, folder, StringComparison.OrdinalIgnoreCase));
         list.Insert(0, folder);
-        if (list.Count > AppSettings.MaxRecentFolders)
-            list.RemoveRange(AppSettings.MaxRecentFolders, list.Count - AppSettings.MaxRecentFolders);
+        settings.RecentFolders = NormalizeRecentFolders(list);
+    }
+
+    /// <summary>丢弃空项、按大小写不敏感去重、截断到上限，并保持原有顺序。</summary>
+    public static List<string> NormalizeRecentFolders(IEnumerable<string> folders)
+    {
+        var result = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var folder in folders)
+        {
+            if (string.IsNullOrWhiteSpace(folder)) continue;
+            if (!seen.Add(folder)) continue;
+            result.Add(folder);
+            if (result.Count >= AppSettings.MaxRecentFolders) break;
+        }
+        return result;
     }
 }

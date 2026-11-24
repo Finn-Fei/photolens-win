@@ -20,7 +20,8 @@ public sealed class ThumbnailStore : IDisposable
         public DateTime LastAccessTime = DateTime.UtcNow;
     }
 
-    private readonly ConcurrentDictionary<string, Entry> _cache = new();
+    // 路径按 Windows 语义大小写不敏感，否则同一文件会因大小写差异缓存两份
+    private readonly ConcurrentDictionary<string, Entry> _cache = new(StringComparer.OrdinalIgnoreCase);
     // 解码放后台线程池；高优先级（前 N 张）用独立通道（2 并发，跳过普通队列）
     private readonly SemaphoreSlim _gate = new(4, 4);
     private readonly SemaphoreSlim _highPriorityGate = new(2, 2);
@@ -47,6 +48,8 @@ public sealed class ThumbnailStore : IDisposable
             {
                 try
                 {
+                    // 缩略图阶段同样按像素上限拒绝：一个塞满超大图的目录不该把内存打爆
+                    if (!ImageGuards.WithinPixelBudget(path)) return null;
                     using var stream = File.OpenRead(path);
                     return Bitmap.DecodeToWidth(stream, 220, BitmapInterpolationMode.HighQuality);
                 }

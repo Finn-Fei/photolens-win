@@ -22,6 +22,8 @@ public class ImageViewer : Control
 {
     private const double LoupeDiameter = 150;
     private const double LoupeZoom = 3;
+    /// <summary>放大镜相对光标的偏移：避免圆框正好压住被观察的像素。</summary>
+    private const double LoupeOffset = 18;
 
     // 三层结构：_transformLayer（Canvas 容器，用 SetLeft/SetTop 定位）→ _layoutLayer（Image 按 Uniform 自动居中）→ Image
     private readonly Grid _root = new();
@@ -37,12 +39,21 @@ public class ImageViewer : Control
     private readonly TextBlock _message = new();
     private readonly Border _dropHighlight = new();
     private readonly Border _loupe = new();
+    // 自绘控件没有 FocusAdorner：用一层描边自己做可见的键盘焦点提示
+    private readonly Border _focusRing = new()
+    {
+        BorderBrush = Brushes.DodgerBlue,
+        BorderThickness = new Thickness(2),
+        CornerRadius = new CornerRadius(4),
+        Margin = new Thickness(2),
+        IsHitTestVisible = false,
+        IsVisible = false,
+    };
     // 放大镜内容直接取当前渲染层做局部放大，缩放/旋转/平移后也保持一致
     private readonly VisualBrush _loupeBrush = new() { Stretch = Stretch.Fill };
 
     private ViewTransform _transform = new();
     private bool _isFitted = true;
-    private Affine _orientation = Affine.Identity;
     private int _rotationTurns;
     private FullImage? _current;
     private bool _pointerPanning;
@@ -90,6 +101,11 @@ public class ImageViewer : Control
         _loupe.IsHitTestVisible = false;
         _loupe.IsVisible = false;
         _loupe.Background = _loupeBrush;
+        // 浅色照片上纯白圆环不可见：加一圈硬边深色外描边
+        _loupe.BoxShadow = new BoxShadows(new BoxShadow
+        {
+            OffsetX = 0, OffsetY = 0, Blur = 0, Spread = 1, Color = Color.Parse("#99000000"),
+        });
 
         _layoutLayer.Child = _image;
         _transformLayer.Children.Add(_layoutLayer);
@@ -97,6 +113,7 @@ public class ImageViewer : Control
         _root.Children.Add(_dropHighlight);
         _root.Children.Add(_loupe);
         _root.Children.Add(_message);
+        _root.Children.Add(_focusRing);
         VisualChildren.Add(_root);
         LogicalChildren.Add(_root);
 
@@ -105,6 +122,8 @@ public class ImageViewer : Control
         PointerReleased += OnReleased;
         PointerExited += (_, _) => { if (_loupeActive) ToggleLoupe(false); };
         PointerCaptureLost += (_, _) => _pointerPanning = false;
+        GotFocus += (_, _) => _focusRing.IsVisible = true;
+        LostFocus += (_, _) => _focusRing.IsVisible = false;
         PointerWheelChanged += OnWheel;
         DoubleTapped += OnDoubleTapped;
         SizeChanged += OnResized;
@@ -123,7 +142,6 @@ public class ImageViewer : Control
         _image.Source = image.Bitmap;
         _image.IsVisible = true;
         _message.IsVisible = false;
-        _orientation = ExifOrientation.Matrix(image.Orientation, image.PixelWidth, image.PixelHeight);
         _isFitted = true;
         SyncTransformSize();
         _transform.Fit();
@@ -144,6 +162,14 @@ public class ImageViewer : Control
 
     public FullImage? Current => _current;
     public bool IsFitted => _isFitted;
+    /// <summary>用户顺时针旋转的 90° 圈数（0–3）。</summary>
+    public int RotationTurns => _rotationTurns;
+    /// <summary>把当前 EXIF 方向 + 用户旋转的复合变换与目标显示尺寸交给导出（另存为）。</summary>
+    public (Affine Matrix, int Width, int Height) ExportTransform()
+    {
+        var (m, dw, dh) = EffectiveMatrix();
+        return (m, (int)Math.Round(dw), (int)Math.Round(dh));
+    }
     public double Scale => _transform.Scale;
     public double FitScale => _transform.FitScale;
     public bool CanGoPrevious { get; private set; }
@@ -202,16 +228,11 @@ public class ImageViewer : Control
     /// <summary>用户旋转 k 个 90°（顺时针）叠加在 EXIF 方向之上的复合矩阵与显示尺寸</summary>
     private (Affine Matrix, double Width, double Height) EffectiveMatrix()
     {
-        var m = _orientation;
-        (double dw, double dh) = _current is null
-            ? (0, 0)
-            : (_current.DisplayWidth, _current.DisplayHeight);
-        for (int i = 0; i < _rotationTurns; i++)
-        {
-            m = new Affine(0, 1, -1, 0, dh, 0).After(m);
-            (dw, dh) = (dh, dw);
-        }
-        return (m, dw, dh);
+        if (_current is null) return (Affine.Identity, 0, 0);
+        // EXIF 方向 × 用户旋转的复合逻辑收敛到 Core（DisplayOrientation），此处只取用，
+        // 于是同一份数学可以被单测，也能被导出（另存为）复用。
+        return DisplayOrientation.Compose(
+            _current.Orientation, _rotationTurns, _current.PixelWidth, _current.PixelHeight);
     }
 
     private void SyncTransformSize()
@@ -326,6 +347,7 @@ public class ImageViewer : Control
             e.Handled = true;
             return;
         }
+        if (e.Delta.Y == 0) { e.Handled = true; return; } // 横向/倾斜滚轮不应触发缩放
         var pos = e.GetPosition(this);
         double factor = e.Delta.Y > 0 ? 1.15 : 1 / 1.15;
         SyncTransformSize();
@@ -375,8 +397,8 @@ public class ImageViewer : Control
         if (_current is null || !_loupeActive) return;
 
         // 圆框贴边时钳制在画布内，避免被 ClipToBounds 裁成半圆
-        double x = Math.Clamp(_lastPointer.X - LoupeDiameter / 2, 0, Math.Max(0, Bounds.Width - LoupeDiameter));
-        double y = Math.Clamp(_lastPointer.Y - LoupeDiameter / 2, 0, Math.Max(0, Bounds.Height - LoupeDiameter));
+        double x = Math.Clamp(_lastPointer.X - LoupeDiameter / 2 + LoupeOffset, 0, Math.Max(0, Bounds.Width - LoupeDiameter));
+        double y = Math.Clamp(_lastPointer.Y - LoupeDiameter / 2 + LoupeOffset, 0, Math.Max(0, Bounds.Height - LoupeDiameter));
         _loupe.Margin = new Thickness(x, y, 0, 0);
 
         // 以光标为中心取 1/Zoom 大小的源区域，铺满圆框

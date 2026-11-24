@@ -60,8 +60,9 @@ public static class ExifLines
                 var shooting = new List<string>();
                 if (subIfd.TryGetDouble(ExifDirectoryBase.TagExposureTime, out var exp) && exp > 0)
                 {
+                    // 0.4s 的倒数 2.5 必须进到 3（1/3s）：默认银行家舍入会得到 1/2s
                     shooting.Add(exp < 1
-                        ? $"1/{(int)Math.Round(1 / exp)}s"
+                        ? $"1/{(int)Math.Round(1 / exp, MidpointRounding.AwayFromZero)}s"
                         : string.Format(CultureInfo.InvariantCulture, "{0:F1}s", exp));
                 }
                 if (subIfd.TryGetDouble(ExifDirectoryBase.TagFNumber, out var f) && f > 0)
@@ -102,13 +103,18 @@ public static class ExifLines
         if (dir is null) return null;
         try { return dir.GetString(tag); } catch { return null; }
     }
-    private static string AbbreviateHome(string path)
+    /// <summary>
+    /// 把用户主目录缩写成 ~。必须大小写不敏感（Windows 路径语义），且要落在目录边界上——
+    /// 否则 home=C:\Users\Bob 会错误匹配并缩写 C:\Users\Bob2\...（既显示错误又泄露用户名）。
+    /// </summary>
+    public static string AbbreviateHome(string path, string? homeOverride = null)
     {
-        string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        if (!string.IsNullOrEmpty(home) && path.StartsWith(home, StringComparison.Ordinal))
-        {
-            return "~" + path[home.Length..];
-        }
-        return path;
+        string home = homeOverride ?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        if (string.IsNullOrEmpty(home)) return path;
+        home = home.TrimEnd('\\', '/');
+        if (home.Length == 0) return path;
+        if (!path.StartsWith(home, StringComparison.OrdinalIgnoreCase)) return path;
+        if (path.Length > home.Length && path[home.Length] is not ('\\' or '/')) return path;
+        return "~" + path[home.Length..];
     }
 }

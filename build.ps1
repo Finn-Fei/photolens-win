@@ -24,13 +24,23 @@ dotnet test PhotoLensWin.sln -c Release --no-build
 
 Write-Host "[3/4] 发布自包含单文件 ($Runtime)..."
 $out = Join-Path "dist" $Runtime
+# 清理旧产物：否则上一版的 .pdb / 残留依赖会混进本次发布
+if (Test-Path $out) { Remove-Item $out -Recurse -Force }
+# -p:Version 必须显式传入：否则 zip 名是新版本、程序集 FileVersion 还是 Directory.Build.props 的旧值
+# EnableCompressionInSingleFile：单文件产物默认不压缩（实测 exe 约 96MB）
+# DebugType=embedded：不再产出独立的 .pdb
 dotnet publish src\PhotoLensWin.App -c Release -r $Runtime --self-contained true `
+    -p:Version=$Version `
     -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true `
+    -p:EnableCompressionInSingleFile=true -p:DebugType=embedded `
     -o $out
 
 Write-Host "[4/4] 打包..."
 $zip = Join-Path "dist" "PhotoLensWin-$Version-$Runtime.zip"
 if (Test-Path $zip) { Remove-Item $zip }
+# 双保险：发行目录不应出现调试符号
+Get-ChildItem -Path $out -Filter *.pdb -File -Recurse -ErrorAction SilentlyContinue |
+    Remove-Item -Force -ErrorAction SilentlyContinue
 Compress-Archive -Path (Join-Path $out "*") -DestinationPath $zip
 
 Write-Host "完成：$zip"

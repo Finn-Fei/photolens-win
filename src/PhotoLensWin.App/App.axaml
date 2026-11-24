@@ -16,6 +16,15 @@
       <ResourceDictionary.ThemeDictionaries>
         <ResourceDictionary x:Key="Dark">
           <SolidColorBrush x:Key="AppBackground" Color="#0E0F10" />
+          <!-- 覆盖层/提示/强调前景：把原先散落在 MainWindow.axaml 的硬编码色值收进来 -->
+          <SolidColorBrush x:Key="WarningForeground" Color="#E8A33D" />
+          <SolidColorBrush x:Key="AccentForeground" Color="#FFFFFF" />
+          <SolidColorBrush x:Key="Scrim" Color="#66000000" />
+          <SolidColorBrush x:Key="OverlayHover" Color="#AA2E5C99" />
+          <SolidColorBrush x:Key="OverlayPressed" Color="#CC2E5C99" />
+          <SolidColorBrush x:Key="DropHighlightBorder" Color="#4E84D4" />
+          <SolidColorBrush x:Key="DropHighlightFill" Color="#1F4E84D4" />
+          <SolidColorBrush x:Key="OnScrim" Color="#FFFFFF" />
           <SolidColorBrush x:Key="MenuBackground" Color="#1F2124" />
           <SolidColorBrush x:Key="MenuForeground" Color="#E5E7EB" />
           <SolidColorBrush x:Key="MenuHover" Color="#2A2D31" />
@@ -36,6 +45,15 @@
         </ResourceDictionary>
         <ResourceDictionary x:Key="Light">
           <SolidColorBrush x:Key="AppBackground" Color="#F4F5F7" />
+          <!-- 浅色主题下这组值单独取，修掉琥珀 Toast 1.79:1 与激活按钮 ~3.1:1 的对比度问题 -->
+          <SolidColorBrush x:Key="WarningForeground" Color="#8A5A00" />
+          <SolidColorBrush x:Key="AccentForeground" Color="#FFFFFF" />
+          <SolidColorBrush x:Key="Scrim" Color="#66000000" />
+          <SolidColorBrush x:Key="OverlayHover" Color="#AA2E86DE" />
+          <SolidColorBrush x:Key="OverlayPressed" Color="#CC2E86DE" />
+          <SolidColorBrush x:Key="DropHighlightBorder" Color="#3B7DD8" />
+          <SolidColorBrush x:Key="DropHighlightFill" Color="#1F3B7DD8" />
+          <SolidColorBrush x:Key="OnScrim" Color="#FFFFFF" />
           <SolidColorBrush x:Key="MenuBackground" Color="#FFFFFF" />
           <SolidColorBrush x:Key="MenuForeground" Color="#1F2328" />
           <SolidColorBrush x:Key="MenuHover" Color="#E9ECEF" />

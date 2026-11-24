@@ -2,7 +2,7 @@
 
   <!-- 版本号与程序集元数据的唯一来源：csproj 不再各自声明 Version -->
   <PropertyGroup>
-    <Version>1.2.6</Version>
+    <Version>1.2.7</Version>
     <Company>PhotoLens</Company>
     <Product>PhotoLensWin</Product>
     <AssemblyTitle>PhotoLens — Lightweight Photo Viewer</AssemblyTitle>

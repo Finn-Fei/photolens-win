@@ -29,7 +29,7 @@
 
 ## 下载与运行（Windows）
 
-1. 打开 [发行版页面](https://gitee.com/Finn-Wangfei/photolens-win/releases)，下载 `PhotoLensWin-1.2.6-win-x64.zip`
+1. 打开 [发行版页面](https://gitee.com/Finn-Wangfei/photolens-win/releases)，下载 `PhotoLensWin-1.2.7-win-x64.zip`
 2. 解压到任意目录，双击 `PhotoLensWin.App.exe`
 3. 首次运行若出现「Windows 已保护你的电脑」，点「更多信息 → 仍要运行」（程序未做代码签名）
 
@@ -46,14 +46,14 @@
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File build.ps1
-# 产物：dist\PhotoLensWin-1.2.6-win-x64.zip
+# 产物：dist\PhotoLensWin-1.2.7-win-x64.zip
 ```
 
 ### 手动构建 / 测试 / 运行
 
 ```bash
 dotnet build                       # 0 警告 0 错误
-dotnet test                        # 71 项单元测试（Core 逻辑：排序/评分/方向矩阵/目录/设置）
+dotnet test                        # 104 项单元测试（Core 逻辑：排序/评分/方向矩阵/目录/设置/显示方向复合/下标步进）
 dotnet run --project src/PhotoLensWin.App -- [文件夹或图片路径...]
 ```
 
@@ -126,14 +126,14 @@ PHOTOLENS_SNAPSHOT_BROWSE=1  # 截图前逐张切换，覆盖缓存淘汰路径
 PhotoLensWin.sln
 ├── src/PhotoLensWin.Core      # 纯逻辑：自然排序、六种排序规则、目录收集、画质评分、EXIF 方向矩阵、视图变换数学、设置
 ├── src/PhotoLensWin.App       # Avalonia UI：主窗口、胶片栏、图像查看器、缩略图缓存、拖放
-└── tests/PhotoLensWin.Tests   # 71 项单元测试（xunit）
+└── tests/PhotoLensWin.Tests   # 104 项单元测试（xunit）
 ```
 
 ## 已验证与未验证
 
 已在本机（macOS + Avalonia 11.3.2）实测核验（单元测试 + 整窗快照）：
 
-- 自然排序 `a1 < a2 < a10`、六种排序规则与稳定兜底（71 项测试全部通过）
+- 自然排序 `a1 < a2 < a10`、六种排序规则与稳定兜底（104 项测试全部通过）
 - 画质评分公式与夜景曝光豁免、评分失败回退「不可用」
 - EXIF 方向 1–8 的四角映射与宽高互换（含方向 7 回归）
 - 文件与其父目录重复拖入的去重
@@ -158,7 +158,7 @@ PhotoLensWin.sln
 - 旋转仅显示期生效，不写回文件
 - 对比模式下滚轮缩放作用于主图（对比图固定适合窗口）
 - 胶片栏全量创建缩略图控件、未做虚拟化；超大目录（数千张）首次载入会较慢
-- 缩略图缓存淘汰依赖 GC 释放（避免释放正在显示的位图）
+- 缩略图缓存按 LRU 显式淘汰并释放；仍显示在界面上的位图通过 `IsProtected` 跳过，不会被释放
 
 ## 更新记录
 

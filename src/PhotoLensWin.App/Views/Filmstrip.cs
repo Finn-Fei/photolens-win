@@ -197,7 +197,24 @@ public class Filmstrip : Border
     private sealed class FilmItem : Border
     {
 
-        private readonly Image _thumb = new() { Stretch = Stretch.Uniform, HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center, VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center };
+        // UniformToFill + Stretch 对齐：缩略图铺满卡片并裁掉溢出部分，
+        // 竖图不再缩成细条；配合 ClipToBounds 卡片圆角不会被方角盖住。
+        private readonly Image _thumb = new()
+        {
+            Stretch = Stretch.UniformToFill,
+            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch,
+            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Stretch,
+            ClipToBounds = true,
+        };
+        private readonly TextBlock _placeholder = new()
+        {
+            Text = "无法预览",
+            FontSize = 11,
+            Opacity = 0.7,
+            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+            IsVisible = false,
+        };
         private readonly ThumbnailStore _thumbs;
         private readonly bool _highPriority;
         private bool _attached;
@@ -211,13 +228,16 @@ public class Filmstrip : Border
             HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch;
             MinHeight = 60;
             MaxHeight = 180;
-            CornerRadius = new CornerRadius(8);
+            CornerRadius = new CornerRadius(6);
             Margin = new Thickness(0, 0, 0, 10);
             Padding = new Thickness(0);
+            // 子项（UniformToFill 的缩略图）不得溢出卡片，否则圆角会被方角盖住
+            ClipToBounds = true;
             // 配色交给 Border.filmItem / Border.filmItem.selected 样式，亮暗主题都能跟随
             Classes.Add("filmItem");
             SetSelected(false);
-            Child = _thumb;
+            Avalonia.Automation.AutomationProperties.SetName(this, entry.Name);
+            Child = new Panel { Children = { _thumb, _placeholder } };
         }
 
         public ImageEntry Entry { get; }
@@ -235,6 +255,7 @@ public class Filmstrip : Border
         {
             _attached = false;
             _thumb.Source = null;
+            _placeholder.IsVisible = false;
         }
 
         protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
@@ -254,10 +275,18 @@ public class Filmstrip : Border
         private async Task LoadThumbAsync(string path)
         {
             var bitmap = await _thumbs.LoadAsync(path, _highPriority);
-            if (bitmap is null) return;
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
-                if (_attached && Entry.FullPath == path) _thumb.Source = bitmap;
+                if (!_attached || Entry.FullPath != path) return;
+                if (bitmap is null)
+                {
+                    // 解码失败时给出明确占位，而不是留一张空底卡
+                    _placeholder.IsVisible = true;
+                }
+                else
+                {
+                    _thumb.Source = bitmap;
+                }
             });
         }
     }
