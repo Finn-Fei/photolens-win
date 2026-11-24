@@ -71,7 +71,9 @@ dotnet publish src/PhotoLensWin.App -c Release -r win-x64 --self-contained true 
 - `--self-contained false` 可得到依赖框架的小体积版本（目标机需装 .NET 9 Desktop Runtime）
 - 若需 win-arm64，将 RID 换为 `win-arm64`
 
-### 自验快照模式（开发用）
+### 自验快照模式（开发用，仅 Debug 构建）
+
+Release 产物不包含该入口（环境变量即可写任意路径并自动退出，不应留在生产）。
 
 ```bash
 # 加载文件夹、渲染整窗为 PNG 后自动退出
@@ -79,14 +81,20 @@ PHOTOLENS_SNAPSHOT=/tmp/out.png PHOTOLENS_SNAPSHOT_FOLDER=/tmp/photolens_test do
 PHOTOLENS_SNAPSHOT_INFO=1    # 截图前展开信息面板
 PHOTOLENS_SNAPSHOT_COMPARE=1 # 截图前进入对比模式
 PHOTOLENS_SNAPSHOT_BROWSE=1  # 截图前逐张切换，覆盖缓存淘汰路径
+PHOTOLENS_SNAPSHOT_SELECT=1  # 截图前选中第 N 张（箭头只在中间位置同时可见）
 ```
 
-快照模式同时执行**布局越界自检**：遍历可视树，检查已布局的可见元素是否超出父容器边界（容差 0.5px；滚动内容、Canvas 定位、Popup 除外），结果写入快照同目录的 `layout-check.txt`，有越界即 `FAIL` 并记错误日志。
+快照模式同时执行**布局不变量自检**，结果写入快照同目录的 `layout-check.txt`：
+
+1. **越界**：已布局的可见元素不得超出父容器边界（容差 1px；滚动内容、Canvas 定位、Popup、控件模板内部除外）。
+2. **兄弟重叠**：同一父容器内的可见元素不得相交（ImageViewer、信息面板、Toast 等浮层除外）。1.2.6 的箭头钳制曾把右箭头推进左箭头，越界断言查不出，1.2.7 起由这条兜住。
+
+`verify-layout.ps1` 会跑 **16 个场景**（760×540 / 1100×760 × 深色/浅色 × 单窗/信息/对比/对比+信息），任一场景非 `PASS` 即退出码 1。
 
 ### 发布前验证门槛
 
 1. **视觉/布局类改动**：必须提供同一台机器上的真机屏幕截图对照（修复前 `FAIL`、修复后 `PASS`）。离屏快照不能单独作为通过依据——实测同一版本在离屏渲染不裁切、真机渲染裁切。
-2. **布局越界**：`layout-check.txt` 必须为 `PASS`，不得带越界发布。
+2. **布局自检**：`verify-layout.ps1` 的 16 个场景必须全 `PASS`；`build.ps1` 已把它接为第 3 步，失败即拒绝打包。
 3. **逻辑类改动**：先让新增单元测试失败，再改到通过；不接受"改完顺带跑一下绿了"。
 4. **错误与否定性结论**：构建/测试报错先读完整错误行再归因；说"不是 bug / 只是显示问题"必须给出反向验证（换渲染路径、换 DPI、换字号）。
 

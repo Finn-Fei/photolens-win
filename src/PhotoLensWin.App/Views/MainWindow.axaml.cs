@@ -180,6 +180,14 @@ public partial class MainWindow : Window
             await Task.Delay(600);
         }
 
+        // 指定选中第 N 张：箭头只在中间位置同时可见，重叠类断言需要它
+        var selectEnv = Environment.GetEnvironmentVariable("PHOTOLENS_SNAPSHOT_SELECT");
+        if (int.TryParse(selectEnv, out int wanted) && wanted >= 0 && wanted < _images.Count)
+        {
+            SelectIndex(wanted, scrollStrip: false);
+            await Task.Delay(450);
+        }
+
         if (!string.IsNullOrEmpty(snapshotFolder))
         {
             bool wantInfo = Environment.GetEnvironmentVariable("PHOTOLENS_SNAPSHOT_INFO") == "1";
@@ -255,8 +263,29 @@ public partial class MainWindow : Window
             return false;
         }
 
+        /// <summary>内容宿主/浮层：与兄弟相交是设计意图（画布上的箭头、信息面板、Toast）。</summary>
+        static bool IsOverlayLike(Visual v) =>
+            v is ImageViewer ||
+            (v is Control c && (c.Classes.Contains("infoPanel") || c.Classes.Contains("toastHost")));
+
+        /// <summary>ImageViewer 内部是自绘叠加层（放大镜/拖放高亮/提示），不做重叠判定。</summary>
+        static bool UnderImageViewer(Visual v)
+        {
+            Visual? cur = Avalonia.VisualTree.VisualExtensions.GetVisualParent(v);
+            for (int i = 0; i < 8 && cur is not null; i++)
+            {
+                if (cur is ImageViewer) return true;
+                cur = Avalonia.VisualTree.VisualExtensions.GetVisualParent(cur);
+            }
+            return false;
+        }
+
+        /// <summary>控件模板内部（PART_*、ScrollBar 轨道等）由主题负责，不参与重叠判定。</summary>
+        static bool InTemplate(Visual v) => (v as Control)?.TemplatedParent is not null;
+
         void Visit(Visual parent)
         {
+            var kids = new List<Visual>();
             foreach (var child in Avalonia.VisualTree.VisualExtensions.GetVisualChildren(parent))
             {
                 if (child is not Visual cv || !cv.IsVisible || cv.Bounds.Width <= 0 || cv.Bounds.Height <= 0)
@@ -276,7 +305,26 @@ public partial class MainWindow : Window
                     }
                 }
 
+                kids.Add(cv);
                 Visit(cv);
+            }
+
+            // 兄弟重叠：同一父容器内、可见、非浮层元素不得相交
+            // （1.2.6 的箭头钳制曾把右箭头推进左箭头，越界断言查不出，这里补上）
+            if (IsExempt(parent) || UnderImageViewer(parent) || InTemplate(parent)) return;
+            for (int i = 0; i < kids.Count; i++)
+            {
+                for (int j = i + 1; j < kids.Count; j++)
+                {
+                    var a = kids[i];
+                    var c = kids[j];
+                    if (IsOverlayLike(a) || IsOverlayLike(c)) continue;
+                    if (InTemplate(a) || InTemplate(c)) continue;
+                    double ix = Math.Min(a.Bounds.Right, c.Bounds.Right) - Math.Max(a.Bounds.Left, c.Bounds.Left);
+                    double iy = Math.Min(a.Bounds.Bottom, c.Bounds.Bottom) - Math.Max(a.Bounds.Top, c.Bounds.Top);
+                    if (ix > tolerance && iy > tolerance)
+                        violations.Add($"{Describe(a)} 与 {Describe(c)} 重叠：{ix:F1}x{iy:F1}");
+                }
             }
         }
 
@@ -287,8 +335,8 @@ public partial class MainWindow : Window
             if (!string.IsNullOrEmpty(dir))
                 File.WriteAllText(Path.Combine(dir, "layout-check.txt"),
                     violations.Count == 0
-                        ? "PASS：无元素越界"
-                        : $"FAIL：{violations.Count} 处越界{Environment.NewLine}" + string.Join(Environment.NewLine, violations));
+                        ? "PASS：无元素越界、无兄弟重叠"
+                        : $"FAIL：{violations.Count} 处问题{Environment.NewLine}" + string.Join(Environment.NewLine, violations));
             if (violations.Count > 0)
                 LogError("layout check: " + string.Join(" | ", violations));
         }

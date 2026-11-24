@@ -16,13 +16,19 @@ if ([string]::IsNullOrWhiteSpace($Version)) {
     $Version = [string]$props.Project.PropertyGroup.Version
 }
 
-Write-Host "[1/4] 还原与编译..."
+Write-Host "[1/5] 还原与编译..."
 dotnet build PhotoLensWin.sln -c Release
 
-Write-Host "[2/4] 单元测试..."
+Write-Host "[2/5] 单元测试..."
 dotnet test PhotoLensWin.sln -c Release --no-build
 
-Write-Host "[3/4] 发布自包含单文件 ($Runtime)..."
+Write-Host "[3/5] 布局自检（Debug 快照矩阵：越界 + 兄弟重叠）..."
+& (Join-Path $PSScriptRoot "verify-layout.ps1")
+if ($LASTEXITCODE -ne 0) {
+    throw "布局自检未通过：禁止打包"
+}
+
+Write-Host "[4/5] 发布自包含单文件 ($Runtime)..."
 $out = Join-Path "dist" $Runtime
 # 清理旧产物：否则上一版的 .pdb / 残留依赖会混进本次发布
 if (Test-Path $out) { Remove-Item $out -Recurse -Force }
@@ -35,7 +41,7 @@ dotnet publish src\PhotoLensWin.App -c Release -r $Runtime --self-contained true
     -p:EnableCompressionInSingleFile=true -p:DebugType=embedded `
     -o $out
 
-Write-Host "[4/4] 打包..."
+Write-Host "[5/5] 打包..."
 $zip = Join-Path "dist" "PhotoLensWin-$Version-$Runtime.zip"
 if (Test-Path $zip) { Remove-Item $zip }
 # 双保险：发行目录不应出现调试符号
