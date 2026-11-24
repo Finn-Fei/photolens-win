@@ -180,7 +180,9 @@ internal static class Program
     /// <summary>打开请求的最大字符数（防御性上限，正常路径参数远小于此）。</summary>
     private const int MaxOpenRequestChars = 64 * 1024;
 
-    /// <summary>带上限地读取请求内容，避免无界限的 ReadToEndAsync。</summary>
+    /// <summary>带上限地读取请求内容，避免无界限的 ReadToEndAsync。
+    /// 读操作带超时：同会话任意进程连上后不发数据即可永久占用唯一管道实例，
+    /// 之后"双击图片打开"会静默失效。</summary>
     private static async Task<string> ReadPayloadAsync(StreamReader reader)
     {
         var buffer = new char[4096];
@@ -188,7 +190,16 @@ internal static class Program
         while (sb.Length < MaxOpenRequestChars)
         {
             int free = MaxOpenRequestChars - sb.Length;
-            int read = await reader.ReadAsync(buffer.AsMemory(0, Math.Min(buffer.Length, free)));
+            int read;
+            try
+            {
+                read = await reader.ReadAsync(buffer.AsMemory(0, Math.Min(buffer.Length, free)))
+                    .AsTask().WaitAsync(TimeSpan.FromSeconds(10));
+            }
+            catch (TimeoutException)
+            {
+                break; // 对端迟迟不发数据：按空请求处理，释放管道实例
+            }
             if (read <= 0) break;
             sb.Append(buffer, 0, read);
         }

@@ -29,7 +29,7 @@
 
 ## 下载与运行（Windows）
 
-1. 打开 [发行版页面](https://gitee.com/Finn-Wangfei/photolens-win/releases)，下载 `PhotoLensWin-1.2.7-win-x64.zip`
+1. 打开 [发行版页面](https://gitee.com/Finn-Wangfei/photolens-win/releases)，下载 `PhotoLensWin-1.2.8-win-x64.zip`
 2. 解压到任意目录，双击 `PhotoLensWin.App.exe`
 3. 首次运行若出现「Windows 已保护你的电脑」，点「更多信息 → 仍要运行」（程序未做代码签名）
 
@@ -46,7 +46,7 @@
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File build.ps1
-# 产物：dist\PhotoLensWin-1.2.7-win-x64.zip
+# 产物：dist\PhotoLensWin-1.2.8-win-x64.zip
 ```
 
 ### 手动构建 / 测试 / 运行

@@ -18,9 +18,11 @@ if ([string]::IsNullOrWhiteSpace($Version)) {
 
 Write-Host "[1/5] 还原与编译..."
 dotnet build PhotoLensWin.sln -c Release
+if ($LASTEXITCODE -ne 0) { throw "编译失败（exit $LASTEXITCODE）" }
 
 Write-Host "[2/5] 单元测试..."
 dotnet test PhotoLensWin.sln -c Release --no-build
+if ($LASTEXITCODE -ne 0) { throw "单元测试失败（exit $LASTEXITCODE）" }
 
 Write-Host "[3/5] 布局自检（Debug 快照矩阵：越界 + 兄弟重叠）..."
 & (Join-Path $PSScriptRoot "verify-layout.ps1")
@@ -40,6 +42,7 @@ dotnet publish src\PhotoLensWin.App -c Release -r $Runtime --self-contained true
     -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true `
     -p:EnableCompressionInSingleFile=true -p:DebugType=embedded `
     -o $out
+if ($LASTEXITCODE -ne 0) { throw "发布失败（exit $LASTEXITCODE）" }
 
 Write-Host "[5/5] 打包..."
 $zip = Join-Path "dist" "PhotoLensWin-$Version-$Runtime.zip"

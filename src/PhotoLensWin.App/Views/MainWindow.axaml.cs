@@ -197,6 +197,10 @@ public partial class MainWindow : Window
             if (wantInfo || wantCompare) await Task.Delay(500);
         }
 
+        // 等首图真正解码完成：信息面板高度依赖元数据，若在"未选择图片"状态下断言，
+        // 「箭头让位」这条分支永远不会被触发，自检会在没覆盖关键场景时误报 PASS。
+        for (int i = 0; i < 50 && _current is null; i++) await Task.Delay(100);
+
         await Dispatcher.UIThread.InvokeAsync(() => CheckLayoutBounds(snapshotPath));
 
         await Dispatcher.UIThread.InvokeAsync(() =>
@@ -839,7 +843,12 @@ public partial class MainWindow : Window
 
             NameLabel.Text = entry.Name;
             var loaded = await ImageStore.LoadAsync(entry.FullPath);
-            if (version != _presentVersion) return; // 期间已切换到别的图/重建列表：丢弃迟到结果
+            if (version != _presentVersion)
+            {
+                // 迟到结果：仍放回缓存（否则解出来的大图无人释放也无人复用），不展示即可
+                if (loaded is not null) _imageStore.Put(loaded);
+                return;
+            }
 
             if (loaded is null)
             {
@@ -1450,13 +1459,27 @@ public partial class MainWindow : Window
 
     private async Task CopyCurrentBitmapAsync(bool isMain)
     {
-        var image = isMain ? MainViewer.Current : CompareViewer.Current;
+        var viewer = isMain ? MainViewer : CompareViewer;
+        var image = viewer.Current;
         if (image is null) return;
         MemoryStream? ms = null;
         try
         {
             ms = new MemoryStream();
-            image.Bitmap.Save(ms);
+            // 复制图像必须与屏幕所见一致：EXIF 方向 2–8 或按过 R 时先把变换烘进像素，
+            // 否则粘到别处是躺倒的（另存为已同样处理）。
+            if (image.Orientation is >= 2 and <= 8 || viewer.RotationTurns != 0)
+            {
+                var (matrix, w, h) = viewer.ExportTransform();
+                using var flattened = Flatten(image, matrix, w, h);
+                using var skImage = SkiaSharp.SKImage.FromBitmap(flattened);
+                using var encoded = skImage.Encode(SkiaSharp.SKEncodedImageFormat.Png, 100);
+                using (encoded) { encoded.SaveTo(ms); }
+            }
+            else
+            {
+                image.Bitmap.Save(ms);
+            }
             ms.Position = 0;
             var data = new DataObject();
             data.Set("PNG", ms);
@@ -1544,6 +1567,8 @@ public partial class MainWindow : Window
         try
         {
             await using var stream = await file.OpenWriteAsync();
+            // OpenWriteAsync 不保证截断：保存到更大的同名文件时旧尾部会残留、产物损坏
+            stream.SetLength(0);
             using var flattened = Flatten(image, matrix, targetWidth, targetHeight);
             using var skImage = SkiaSharp.SKImage.FromBitmap(flattened);
             var encoded = skImage.Encode(
@@ -1610,6 +1635,13 @@ public partial class MainWindow : Window
         {
             // 回收站不可用（非 NTFS 本地卷 / UNC / U 盘未启用回收站）时先应用内确认，默认取消
             if (!canRecycle && !await ConfirmPermanentDeleteAsync(path)) return;
+
+            // 确认框期间目标可能被替换为目录/联接点：真正删除前必须复检（TOCTOU）
+            if (!NativeMethods.IsPlainFile(path))
+            {
+                ShowToast("目标已不是普通文件，已取消删除");
+                return;
+            }
 
             // 在 UI 线程同步删除：Shell 的"Nuke 警告"对话框需要消息泵，
             // 丢到线程池线程上会弹不出来，那就等于又退化为静默永久删除。

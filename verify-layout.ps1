@@ -1,4 +1,4 @@
-# Layout verification matrix for PhotoLensWin (Debug-only snapshot self-check).
+﻿# Layout verification matrix for PhotoLensWin (Debug-only snapshot self-check).
 # 2 window sizes x 2 themes x 4 modes = 16 snapshots; each must report PASS
 # (no element overflow, no sibling overlap). Exits non-zero on any failure.
 $ErrorActionPreference = "Stop"
@@ -8,6 +8,14 @@ Set-Location $root
 $exe = Join-Path $root "src\PhotoLensWin.App\bin\Debug\net9.0\PhotoLensWin.App.exe"
 dotnet build (Join-Path $root "PhotoLensWin.sln") -c Debug --nologo 2>&1 | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "Debug build failed" }
+
+# 单实例会拒绝第二个进程：残留实例会让每一例都"产不出结果" → 先退出
+$running = Get-Process PhotoLensWin.App -ErrorAction SilentlyContinue
+if ($running) {
+    Write-Host "检测到正在运行的 PhotoLensWin.App（单实例会拒绝快照），先退出再继续"
+    $running | Stop-Process -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Milliseconds 500
+}
 
 # Fixture uses a long folder name so the info panel reaches MaxWidth(300);
 # that is the condition under which the right-arrow clamp used to overlap.
@@ -30,11 +38,15 @@ if (-not (Get-ChildItem $fixture -Filter *.jpg -ErrorAction SilentlyContinue)) {
     }
 }
 
-$settingsDir = Join-Path $env:APPDATA "PhotoLensWin"
+# 隔离配置目录：子进程继承 APPDATA，测试值不会写进真实 %APPDATA%\PhotoLensWin，
+# 也不会因为本机没有 settings.json 而留下残留。
+$testAppData = Join-Path $env:TEMP "photolens-verify-appdata"
+if (Test-Path $testAppData) { Remove-Item $testAppData -Recurse -Force }
+New-Item -ItemType Directory -Force -Path $testAppData | Out-Null
+$settingsDir = Join-Path $testAppData "PhotoLensWin"
 New-Item -ItemType Directory -Force -Path $settingsDir | Out-Null
 $settings = Join-Path $settingsDir "settings.json"
-$backup = Join-Path $env:TEMP "photolens-verify-settings.bak"
-if (Test-Path $settings) { Copy-Item $settings $backup -Force }
+$savedAppData = $env:APPDATA
 
 $cases = @()
 foreach ($w in 760, 1100) {
@@ -48,6 +60,7 @@ foreach ($w in 760, 1100) {
 
 $failures = @()
 try {
+    $env:APPDATA = $testAppData
     foreach ($c in $cases) {
         $dir = Join-Path $env:TEMP ("photolens-verify-" + $c.W + "-" + $c.Theme + "-" + $c.Mode)
         New-Item -ItemType Directory -Force -Path $dir | Out-Null
@@ -71,9 +84,16 @@ try {
         Remove-Item Env:PHOTOLENS_SNAPSHOT, Env:PHOTOLENS_SNAPSHOT_FOLDER, Env:PHOTOLENS_SNAPSHOT_SELECT, `
             Env:PHOTOLENS_SNAPSHOT_INFO, Env:PHOTOLENS_SNAPSHOT_COMPARE -ErrorAction SilentlyContinue
 
-        $text = Get-Content (Join-Path $dir "layout-check.txt") -Raw -ErrorAction SilentlyContinue
-        $ok = $text -and $text.TrimStart().StartsWith("PASS")
         $label = "{0}x{1} {2} {3}" -f $c.W, $c.H, $c.Theme, $c.Mode
+        $resultFile = Join-Path $dir "layout-check.txt"
+        if (-not (Test-Path $resultFile)) {
+            $msg = "未产出 layout-check.txt（应用未启动成快照模式：可能仍有实例在运行或启动失败）"
+            Write-Host ("[FAIL] " + $label + " -> " + $msg)
+            $failures += ($label + " -> " + $msg)
+            continue
+        }
+        $text = Get-Content $resultFile -Raw
+        $ok = $text -and $text.TrimStart().StartsWith("PASS")
         if ($ok) {
             Write-Host ("[PASS] " + $label)
         } else {
@@ -86,7 +106,7 @@ try {
 finally {
     Remove-Item Env:PHOTOLENS_SNAPSHOT, Env:PHOTOLENS_SNAPSHOT_FOLDER, Env:PHOTOLENS_SNAPSHOT_SELECT, `
         Env:PHOTOLENS_SNAPSHOT_INFO, Env:PHOTOLENS_SNAPSHOT_COMPARE -ErrorAction SilentlyContinue
-    if (Test-Path $backup) { Copy-Item $backup $settings -Force }
+    $env:APPDATA = $savedAppData
 }
 
 if ($failures.Count -gt 0) {
